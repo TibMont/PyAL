@@ -1,6 +1,0 @@
-setup.py
-src/PyAL.egg-info/PKG-INFO
-src/PyAL.egg-info/SOURCES.txt
-src/PyAL.egg-info/dependency_links.txt
-src/PyAL.egg-info/requires.txt
-src/PyAL.egg-info/top_level.txt

@@ -282,8 +282,8 @@ def run_continuous_batch_learning_multi(models,
     the previously mentioned function from which it is derived.
     Multiple objectives are handeled by an aggregation function, which combines the individual output for each data point of 
     each objective into a single output value. 
-    The active learning functions are modified in order to also take the aggregation function as an argument. Therefore, active learning 
-    functions from outside this module are not compatible.
+    The active learning acquisition functions are modified in order to also take the aggregation function as an argument. Therefore, active learning 
+    acquisition functions from outside this module are not compatible.
 
     The algorithm generates initial data automatically using either a random approach or using the model-free GSx approach. 
 

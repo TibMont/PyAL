@@ -43,11 +43,11 @@ def run_continuous_batch_learning(model,
            alpha=0,
            n_jobs=1,
            random_state=None,
-           return_samples=False,
            initialization='random',
            pso_options = None,
            fictive_noise_level=0,
-           poly_degree = 3
+           poly_degree = 3,
+           calculate_test_metrics = True
            ):
     '''
     Perform batch-mode Active Learning in continuous parameter space for a given model generating the true data and a give regression model. 
@@ -81,8 +81,6 @@ def run_continuous_batch_learning(model,
         Number of cores to use for parallel evaluation of PSO. Currently not used, PSO runs only in serial mode. The default is 1.
     random_state: int, optional
         Set random state. The default is None.
-    return_samples: bool, optional
-        Whether to return the samples drawn so far. The default is False.
     initialization : str, optional
         Initialization method for generating initial data. Choose from 'random' and 'GSx'. 'random' uses Latin Hypercube sampling 
         to generate the initial dat points. 'GSx' draws randomly the first data point and then uses the model-free GSx method to sample
@@ -93,15 +91,19 @@ def run_continuous_batch_learning(model,
         of particles, i is the number of iterations. The default is 'None'.
     fictive_noise_level : float, optional
         Noise level for non-GPR models used for assuming predictions as true values to enable batch-wise learning.
+    calculate_test_metrics : bool, optional
+        Can be used for testing Active Learning algorithms for known models. Test metrics are calculated automatically. If 'False' no test metrics are 
+        calculated and the AL runs in deployement mode.
 
     Returns
     -------
-    results : pd_DataFrame
+    sample_x : nd_array
+        Array that contains the sampled data points (in terms of their features). 
+    results : pd_DataFrame, optional
         Pandas DataFrame containing the columns: 'm', 'mean_mse_test', 'max_observation'. Data is stored for each active learning step, 
         where 'm' gives the number of data used for training, 'mean_mse_test' the MSE of the test set and 'max_observation' the maximum 
-        value observed so far.
-    sample_x : nd_array, optional
-        Array that contains the sampled data points (in terms of their features). Only returned when return_samples is True. 
+        value observed so far. Only returned when calculate_test_metrics is 'True'.
+
 
     '''
 
@@ -125,20 +127,22 @@ def run_continuous_batch_learning(model,
 
     #Generate a pool of sample data points for testing
     dimensions = model.n_features
-    if not isinstance(pool, np.ndarray):
-        x = []
-        for i in range(dimensions):
-            x.append(np.linspace(*lim, 10))
+    if calculate_test_metrics == True:
+        if not isinstance(pool, np.ndarray):
+            x = []
+            for i in range(dimensions):
+                x.append(np.linspace(*lim, 10))
 
-        pool = np.meshgrid(*x)
-        pool = np.array(pool).T
-        pool = pool.reshape(len(x[0]**dimensions), dimensions)
+            pool = np.meshgrid(*x)
+            pool = np.array(pool).T
+            pool = pool.reshape(len(x[0]**dimensions), dimensions)
 
-    pool_poly = poly_transformer.fit_transform(pool)
+        pool_poly = poly_transformer.fit_transform(pool)
 
     #Number of data points in pool
     n_data = len(pool)
-    y_true = model.evaluate(pool, noise = noise)
+    if calculate_test_metrics: 
+        y_true = model.evaluate(pool, noise = noise)
 
     #Generate initial data
     sampler = LHS(d=dimensions)
@@ -146,7 +150,7 @@ def run_continuous_batch_learning(model,
         sample_x_unscaled = sampler.random(initial_samples)
         sample_x = scale(sample_x_unscaled, *lim)
     elif initialization == 'GSx':
-        _, sample_x = run_continuous_batch_learning(model, 
+        sample_x = run_continuous_batch_learning(model, 
            regression_model,
            acquisition_function = 'GSx',
            opt_method = opt_method,
@@ -160,21 +164,21 @@ def run_continuous_batch_learning(model,
            n_jobs=n_jobs,
            random_state=random_state,
            initialization='random',
-           return_samples=True,
            pso_options=pso_options,
-           poly_degree = poly_degree
+           poly_degree = poly_degree,
+           calculate_test_metrics=False
            )
     else:
         raise Exception('Initialization method not implemented')
 
 
     observation_y = model.evaluate(sample_x, noise=noise)
-
-    #To save the MSE
-    mse = np.zeros((active_learning_steps+1,1))
-    max_value = np.zeros((active_learning_steps+1,1))
-    n_observations = np.linspace(initial_samples, initial_samples+(active_learning_steps)*batch_size,
-                                 active_learning_steps+1)
+    if calculate_test_metrics:
+        #To save the MSE
+        mse = np.zeros((active_learning_steps+1,1))
+        max_value = np.zeros((active_learning_steps+1,1))
+        n_observations = np.linspace(initial_samples, initial_samples+(active_learning_steps)*batch_size,
+                                    active_learning_steps+1)
 
     #Fit initial model
     if isinstance(regression_model, LinearRegression):
@@ -184,18 +188,19 @@ def run_continuous_batch_learning(model,
         regression_model.fit(sample_x, observation_y)
 
 
-    #Initial model predictions    
-    if isinstance(regression_model, GPR):
-        mean, std = regression_model.predict(pool,return_std=True)
-    elif isinstance(regression_model, LinearRegression):
-        mean = regression_model.predict(pool_poly)
-    else:
-        mean = regression_model.predict(pool)
-    scores = mean_squared_error(y_true, mean)
+    #Initial model predictions  
+    if calculate_test_metrics:  
+        if isinstance(regression_model, GPR):
+            mean, std = regression_model.predict(pool,return_std=True)
+        elif isinstance(regression_model, LinearRegression):
+            mean = regression_model.predict(pool_poly)
+        else:
+            mean = regression_model.predict(pool)
+        scores = mean_squared_error(y_true, mean)
 
-    #Save scores
-    mse[0,0] = scores
-    max_value[0,0] = np.max(observation_y)
+        #Save scores
+        mse[0,0] = scores
+        max_value[0,0] = np.max(observation_y)
 
     #Start active learning
     for i in range(active_learning_steps):
@@ -383,29 +388,32 @@ def run_continuous_batch_learning(model,
 
         # Fit new model with updated real training set
         if isinstance(regression_model, LinearRegression):
-             regression_model.fit(sample_x_poly, observation_y)
+            regression_model.fit(sample_x_poly, observation_y)
         else:
             regression_model.fit(sample_x, observation_y)
-        if isinstance(regression_model, GPR):
-            mean, std = regression_model.predict(pool,return_std=True)
-        elif isinstance(regression_model, LinearRegression):
-            mean = regression_model.predict(pool_poly)
-        else:
-            mean = regression_model.predict(pool)
 
-        # Calculate and save scores
-        scores = mean_squared_error(y_true, mean)
-        mse[i+1,0] = scores
-        max_value[i+1,0] = np.max(observation_y)
+        if calculate_test_metrics:
+            if isinstance(regression_model, GPR):
+                mean, std = regression_model.predict(pool,return_std=True)
+            elif isinstance(regression_model, LinearRegression):
+                mean = regression_model.predict(pool_poly)
+            else:
+                mean = regression_model.predict(pool)
+
+            # Calculate and save scores
+            scores = mean_squared_error(y_true, mean)
+            mse[i+1,0] = scores
+            max_value[i+1,0] = np.max(observation_y)
         
     #transform results to a pandas DataFrame
-    results = np.vstack([n_observations, mse.T, max_value.T])
-    results = pd.DataFrame(results.T, columns=['m', 'mean_mse_test', 'max_observation'])
+    if calculate_test_metrics:
+        results = np.vstack([n_observations, mse.T, max_value.T])
+        results = pd.DataFrame(results.T, columns=['m', 'mean_mse_test', 'max_observation'])
     
-    if return_samples == True:
-        return results, sample_x
+    if calculate_test_metrics:
+        return sample_x, results
     else:
-        return results
+        return sample_x
 
 
 def run_batch_learning(model, 
@@ -474,6 +482,19 @@ def run_batch_learning(model,
         Array that contains the sampled data points (in terms of their features). Only returned when return_samples is True. 
 
     '''
+
+    if isinstance(regression_model, LinearRegression):
+        if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
+            print('Acquisition functin is not implemented for Linear Regression: {}'.format(acquisition_function))
+            exit()
+    elif not isinstance(regression_model, GPR):
+        if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
+            print('Acquisition functin is not implemented for Non-GPR models: {}'.format(acquisition_function))
+            exit()
+    else:
+        if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc', 'ei', 'ucb', 'poi', 'std', 'uidal', 'SGSx']:
+            print('Acquisition function not implemented: {}'.format(acquisition_function))
+            exit()
     
     #Set random number generator
     rng = np.random.RandomState(seed=random_state)
@@ -763,6 +784,19 @@ def run_learning(model,
         value observed so far.
 
     '''
+
+    if isinstance(regression_model, LinearRegression):
+        if acquisition_function not in ['random', 'GSx', 'ideal', 'qbc']:
+            print('Acquisition functin is not implemented for Linear Regression: {}'.format(acquisition_function))
+            exit()
+    elif not isinstance(regression_model, GPR):
+        if acquisition_function not in ['random', 'GSx', 'ideal', 'qbc']:
+            print('Acquisition functin is not implemented for Non-GPR models: {}'.format(acquisition_function))
+            exit()
+    else:
+        if acquisition_function not in ['random', 'GSx', 'ideal', 'qbc', 'ei', 'ucb', 'poi']:
+            print('Acquisition function not implemented: {}'.format(acquisition_function))
+            exit()
     
     #Set random number generator
     rng = np.random.RandomState(seed=random_state)
