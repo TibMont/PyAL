@@ -139,8 +139,6 @@ def run_continuous_batch_learning(model,
 
         pool_poly = poly_transformer.fit_transform(pool)
 
-    #Number of data points in pool
-    n_data = len(pool)
     if calculate_test_metrics: 
         y_true = model.evaluate(pool, noise = noise)
 
@@ -150,7 +148,7 @@ def run_continuous_batch_learning(model,
         sample_x_unscaled = sampler.random(initial_samples)
         sample_x = scale(sample_x_unscaled, *lim)
     elif initialization == 'GSx':
-        sample_x = run_continuous_batch_learning(model, 
+        sample_x, _ = run_continuous_batch_learning(model, 
            regression_model,
            acquisition_function = 'GSx',
            opt_method = opt_method,
@@ -227,19 +225,6 @@ def run_continuous_batch_learning(model,
             estimated_sample_x_poly = sample_x_poly.copy()
         
         for j in range(batch_size):
-
-            #For the first sample in a batch we can use the model with which we evaluated the scores
-            if j != 0:
-                if isinstance(regression_model, LinearRegression):
-                    regression_model.fit(estimated_sample_x_poly, estimated_observation_y)
-                else:
-                    regression_model.fit(estimated_sample_x, estimated_observation_y)
-                if isinstance(regression_model, GPR):
-                    mean, std = regression_model.predict(pool,return_std=True)
-                elif isinstance(regression_model, LinearRegression):
-                    mean = regression_model.predict(pool_poly)
-                else:
-                    mean = regression_model.predict(pool)
 
             #Choose from optimization routines
             #TODO: enable more customizability of parameters for optimization routines
