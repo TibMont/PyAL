@@ -173,12 +173,14 @@ def run_continuous_batch_learning(model,
 
 
     observation_y = model.evaluate(sample_x, noise=noise)
+
+    scores_train = np.zeros((active_learning_steps+1,3))
+    max_value = np.zeros((active_learning_steps+1,1))
+    n_observations = np.linspace(initial_samples, initial_samples+(active_learning_steps)*batch_size,
+                            active_learning_steps+1)
     if calculate_test_metrics:
         #To save the MSE
-        scores = np.zeros((active_learning_steps+1,3))
-        max_value = np.zeros((active_learning_steps+1,1))
-        n_observations = np.linspace(initial_samples, initial_samples+(active_learning_steps)*batch_size,
-                                    active_learning_steps+1)
+        scores_test = np.zeros((active_learning_steps+1,3))
 
     #Fit initial model
     if isinstance(regression_model, LinearRegression):
@@ -196,13 +198,23 @@ def run_continuous_batch_learning(model,
             mean = regression_model.predict(pool_poly)
         else:
             mean = regression_model.predict(pool)
-        scores = mean_squared_error(y_true, mean)
 
         #Save scores
-        scores[0,0] = mean_squared_error(y_true, mean)
-        scores[0,1] = mean_absolute_error(y_true, mean)
-        scores[0,2] = max_error(y_true, mean)
-        max_value[0,0] = np.max(observation_y)
+        scores_test[0,0] = mean_squared_error(y_true, mean)
+        scores_test[0,1] = mean_absolute_error(y_true, mean)
+        scores_test[0,2] = max_error(y_true, mean)
+
+    if isinstance(regression_model, GPR):
+        mean_train, std_train = regression_model.predict(sample_x,return_std=True)
+    elif isinstance(regression_model, LinearRegression):
+        mean_train = regression_model.predict(sample_x_poly)
+    else:
+        mean_train = regression_model.predict(sample_x)
+
+    scores_train[0,0] = mean_squared_error(observation_y, mean_train)
+    scores_train[0,1] = mean_absolute_error(observation_y, mean_train)
+    scores_train[0,2] = max_error(observation_y, mean_train)
+    max_value[0,0] = np.max(observation_y)
 
     #Start active learning
     for i in range(active_learning_steps):
@@ -406,15 +418,30 @@ def run_continuous_batch_learning(model,
                 mean = regression_model.predict(pool)
 
             # Calculate and save scores
-            scores[i+1,0] = mean_squared_error(y_true, mean)
-            scores[i+1,1] = mean_absolute_error(y_true, mean)
-            scores[i+1,2] = max_error(y_true, mean)
+            scores_test[i+1,0] = mean_squared_error(y_true, mean)
+            scores_test[i+1,1] = mean_absolute_error(y_true, mean)
+            scores_test[i+1,2] = max_error(y_true, mean)
             max_value[i+1,0] = np.max(observation_y)
+
+        if isinstance(regression_model, GPR):
+            mean_train, std_train = regression_model.predict(sample_x,return_std=True)
+        elif isinstance(regression_model, LinearRegression):
+            mean_train = regression_model.predict(sample_x_poly)
+        else:
+            mean_train = regression_model.predict(sample_x)
+
+        scores_train[0,0] = mean_squared_error(observation_y, mean_train)
+        scores_train[0,1] = mean_absolute_error(observation_y, mean_train)
+        scores_train[0,2] = max_error(observation_y, mean_train)
         
     #transform results to a pandas DataFrame
     if calculate_test_metrics:
-        results = np.vstack([n_observations, scores.T, max_value.T])
-        results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
+        results = np.vstack([n_observations, scores_train.T, scores_test.T, max_value.T])
+        results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
+    else:
+        results = np.vstack([n_observations, scores_train.T, max_value.T])
+        results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
+
     
     if calculate_test_metrics:
         return sample_x, results
