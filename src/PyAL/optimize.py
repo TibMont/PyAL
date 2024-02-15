@@ -443,10 +443,7 @@ def run_continuous_batch_learning(model,
         results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
 
     
-    if calculate_test_metrics:
-        return sample_x, results
-    else:
-        return sample_x
+    return sample_x, results
 
 
 def run_batch_learning(model, 
@@ -463,7 +460,9 @@ def run_batch_learning(model,
            return_samples=False,
            initialization='random',
            test_set = None,
-           poly_degree = 3
+           poly_degree = 3,
+           fictive_noise_level = 0,
+           calculate_test_metrics = True
            ):
     '''
     Perform batch-mode Active Learning for a discrete parameter space. The algorithm picks automatically initial data points from a given
@@ -504,6 +503,9 @@ def run_batch_learning(model,
     test_set : nd_array, optional
         Array containing explicit data points for testing. If it is 'None' all unsampled data points in the pool will be used for testing.
         The default value is 'None'.
+    calculate_test_metrics : bool, optional
+        Can be used for testing Active Learning algorithms for known models. Test metrics are calculated automatically. If 'False' no test metrics are 
+        calculated and the AL runs in deployement mode.
 
     Returns
     -------
@@ -548,18 +550,22 @@ def run_batch_learning(model,
 
     pool_poly = poly_transformer.fit_transform(pool)
 
-    #Number of data points in pool
     n_data = len(pool)
-    y_true = model.evaluate(pool, noise = noise)
-
-    if isinstance(test_set, np.ndarray):
-        y_true_test = model.evaluate(test_set, noise = noise)
+    #Number of data points in pool
+    if calculate_test_metrics:
+        if isinstance(test_set, np.ndarray):
+            test_set_poly = poly_transformer.fit_transform(test_set)
+            y_true_test = model.evaluate(test_set, noise = noise)
+            extra_test_set = True
+        else:
+            y_true = model.evaluate(pool, noise = noise)
+            extra_test_set = False
 
     #Randomly pick data points in pool for initial observations
     if initialization == 'random':
         rand_num = rng.randint(0,n_data, size=initial_samples)
     elif initialization == 'GSx':
-        _, initial_data = run_batch_learning(model, 
+        initial_data, _ = run_batch_learning(model, 
            regression_model,
            acquisition_function = 'GSx',
            pool=pool, 
@@ -586,37 +592,58 @@ def run_batch_learning(model,
 
     sample_x = pool[rand_num]
     sample_x_poly = poly_transformer.fit_transform(sample_x)
-    observation_y = y_true[rand_num]
+    observation_y = model.evaluate(sample_x, noise = noise)
 
     data_indices = rand_num.copy()
 
     #To save the MSE
-    scores = np.zeros((active_learning_steps+1,3))
+    scores_train = np.zeros((active_learning_steps+1,3))
     max_value = np.zeros((active_learning_steps+1,1))
     n_observations = np.linspace(initial_samples, initial_samples+(active_learning_steps)*batch_size,
                                  active_learning_steps+1)
+    if calculate_test_metrics:
+        scores_test = np.zeros((active_learning_steps+1,3))
 
     if isinstance(regression_model, LinearRegression):
         regression_model.fit(sample_x_poly, observation_y)
     else:
         regression_model.fit(sample_x, observation_y)
+
+    #Calculate metrics
+    if calculate_test_metrics:
+        if extra_test_set == False:
+            mask = np.ones(y_true.size, dtype=bool)
+            mask[data_indices] = False
+            mask_indices = np.where(mask==True)[0]
+            test_set = pool[mask_indices]
+            test_set_poly = pool_poly[mask_indices]
+            y_true_test = y_true[mask_indices]
+
+        if isinstance(regression_model, GPR):   
+            mean_test, std_test = regression_model.predict(test_set,return_std=True)
+        elif isinstance(regression_model, LinearRegression):
+            mean_test = regression_model.predict(test_set_poly)
+        else:
+            mean_test = regression_model.predict(test_set)
+
+        scores_test[0,0] = mean_squared_error(y_true_test, mean_test)
+        scores_test[0,1] = mean_absolute_error(y_true_test, mean_test)
+        scores_test[0,2] = max_error(y_true_test, mean_test)
+        
+
     if isinstance(regression_model, GPR):   
         mean, std = regression_model.predict(pool,return_std=True)
     elif isinstance(regression_model, LinearRegression):
         mean = regression_model.predict(pool_poly)
     else:
         mean = regression_model.predict(pool)
-    mask = np.ones(y_true.size, dtype=bool)
-    mask[data_indices] = False
-    mask_indices = np.where(mask==True)[0]
 
     #Save scores
-    scores[0,0] = mean_squared_error(y_true, mean)
-    scores[0,1] = mean_absolute_error(y_true, mean)
-    scores[0,2] = max_error(y_true, mean)
+    scores_train[0,0] = mean_squared_error(observation_y, mean[data_indices])
+    scores_train[0,1] = mean_absolute_error(observation_y, mean[data_indices])
+    scores_train[0,2] = max_error(observation_y, mean[data_indices])
     max_value[0,0] = np.max(observation_y)
 
-    
     
     #Start active learning
     for i in range(active_learning_steps):
@@ -641,11 +668,11 @@ def run_batch_learning(model,
                 else:
                     mean = regression_model.predict(pool)
 
-            mask = np.ones(y_true.size, dtype=bool)
+            mask = np.ones(pool.shape[0], dtype=bool)
             mask[data_indices] = False
             mask_indices = np.where(mask==True)[0]
 
-            mask_z = np.ones(y_true.size, dtype=np.int32)
+            mask_z = np.ones(pool.shape[0], dtype=np.int32)
             mask_z[data_indices] = 0
 
             #Optional plotting for debugging
@@ -720,13 +747,25 @@ def run_batch_learning(model,
             if isinstance(regression_model, LinearRegression):
                 estimated_sample_x_poly = poly_transformer.fit_transform(estimated_sample_x)
 
-            estimated_observation_new = mean[index]+rng.normal(0, std[index], size=1)
+            #Assume estimated predictions
+            if isinstance(regression_model, GPR):
+                mean_new, std_new = regression_model.predict(pool[index].reshape(1,-1), return_std=True)
+            elif isinstance(regression_model, LinearRegression):
+                new_x_poly = poly_transformer.fit_transform(pool[index].reshape(1,-1))
+                mean_new = regression_model.predict(new_x_poly)
+                std_new = fictive_noise_level
+            else:
+                mean_new = regression_model.predict(pool[index].reshape(1,-1))
+                std_new = fictive_noise_level
+
+            estimated_observation_new = mean_new+rng.normal(0, std_new, size=1)
+
             estimated_observation_y = np.hstack([estimated_observation_y, estimated_observation_new])
             batch_indices[j] = index
 
         # Updated pool
         x_max = pool[batch_indices]
-        observation_new = y_true[batch_indices]
+        observation_new = model.evaluate(x_max, noise=noise)
         sample_x = np.vstack([sample_x, x_max])
         if isinstance(regression_model, LinearRegression):
             sample_x_poly = poly_transformer.fit_transform(sample_x)
@@ -736,37 +775,50 @@ def run_batch_learning(model,
             regression_model.fit(sample_x_poly, observation_y)
         else:
             regression_model.fit(sample_x, observation_y)
-        if isinstance(regression_model, GPR):
+
+        if calculate_test_metrics:
+            if extra_test_set == False:
+                mask = np.ones(y_true.size, dtype=bool)
+                mask[data_indices] = False
+                mask_indices = np.where(mask==True)[0]
+                test_set = pool[mask_indices]
+                test_set_poly = pool_poly[mask_indices]
+                y_true_test = y_true[mask_indices]
+
+            if isinstance(regression_model, GPR):   
+                mean_test, std_test = regression_model.predict(test_set,return_std=True)
+            elif isinstance(regression_model, LinearRegression):
+                mean_test = regression_model.predict(test_set_poly)
+            else:
+                mean_test = regression_model.predict(test_set)
+
+            scores_test[i+1,0] = mean_squared_error(y_true_test, mean_test)
+            scores_test[i+1,1] = mean_absolute_error(y_true_test, mean_test)
+            scores_test[i+1,2] = max_error(y_true_test, mean_test)
+        
+
+        if isinstance(regression_model, GPR):   
             mean, std = regression_model.predict(pool,return_std=True)
         elif isinstance(regression_model, LinearRegression):
             mean = regression_model.predict(pool_poly)
         else:
-            mean = regression_model.predict(pool)
+            mean = regression_model.predict(PolynomialFeatures)
 
-        mask = np.ones(y_true.size, dtype=bool)
-        mask[data_indices] = False
-        mask_indices = np.where(mask==True)[0]
-        mask_z = np.ones(y_true.size, dtype=np.int32)
-        mask_z[data_indices] = 0
-
-        if isinstance(test_set, np.ndarray):
-            mean_test = regression_model.predict(test_set)
-            scores[i+1,0] = mean_squared_error(y_true_test, mean_test)
-            scores[i+1,1] = mean_absolute_error(y_true_test, mean_test)
-            scores[i+1,2] = max_error(y_true_test, mean_test)
-        else:
-            scores[i+1,0] = mean_squared_error(y_true[mask], mean[mask])
-            scores[i+1,1] = mean_absolute_error(y_true[mask], mean[mask])
-            scores[i+1,2] = max_error(y_true[mask], mean[mask])
+        #Save scores
+        scores_train[i+1,0] = mean_squared_error(observation_y, mean[data_indices])
+        scores_train[i+1,1] = mean_absolute_error(observation_y, mean[data_indices])
+        scores_train[i+1,2] = max_error(observation_y, mean[data_indices])
+        max_value[i+1,0] = np.max(observation_y)
         
-    #transform restuls to an pandas DataFrame
-    results = np.vstack([n_observations, scores.T, max_value.T])
-    results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
-    
-    if return_samples == True:
-        return results, sample_x
+    #transform results to a pandas DataFrame
+    if calculate_test_metrics:
+        results = np.vstack([n_observations, scores_train.T, scores_test.T, max_value.T])
+        results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
     else:
-        return results
+        results = np.vstack([n_observations, scores_train.T, max_value.T])
+        results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
+    
+    return sample_x, results
 
 ################################################################################################################
 #Old functions
