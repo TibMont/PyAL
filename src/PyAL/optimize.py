@@ -7,7 +7,7 @@ from scipy.stats import norm
 
 from scipy.optimize import minimize
 
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_squared_error, mean_absolute_error, max_error
 from sklearn.model_selection import cross_validate
 from sklearn.gaussian_process import GaussianProcessRegressor as GPR
 from sklearn.linear_model import LinearRegression
@@ -175,7 +175,7 @@ def run_continuous_batch_learning(model,
     observation_y = model.evaluate(sample_x, noise=noise)
     if calculate_test_metrics:
         #To save the MSE
-        mse = np.zeros((active_learning_steps+1,1))
+        scores = np.zeros((active_learning_steps+1,3))
         max_value = np.zeros((active_learning_steps+1,1))
         n_observations = np.linspace(initial_samples, initial_samples+(active_learning_steps)*batch_size,
                                     active_learning_steps+1)
@@ -199,7 +199,9 @@ def run_continuous_batch_learning(model,
         scores = mean_squared_error(y_true, mean)
 
         #Save scores
-        mse[0,0] = scores
+        scores[0,0] = mean_squared_error(y_true, mean)
+        scores[0,1] = mean_absolute_error(y_true, mean)
+        scores[0,2] = max_error(y_true, mean)
         max_value[0,0] = np.max(observation_y)
 
     #Start active learning
@@ -350,7 +352,10 @@ def run_continuous_batch_learning(model,
                     models = []
                     for _ in range(alpha):
                         train_index = rng.randint(0,len(estimated_sample_x),len(estimated_sample_x))
-                        regression_model.fit(estimated_sample_x[train_index], estimated_observation_y[train_index])
+                        if isinstance(regression_model, LinearRegression):
+                            regression_model.fit(estimated_sample_x_poly[train_index], estimated_observation_y[train_index])
+                        else:
+                            regression_model.fit(estimated_sample_x_poly[train_index], estimated_observation_y[train_index])
                         models.append(copy.deepcopy(regression_model))
                     cost, new_x = optimizer.optimize(QBC_con, iters=n_iters, verbose=False, n_processes=n_jobs,
                                                      models=models, poly_x=poly_x)
@@ -401,14 +406,15 @@ def run_continuous_batch_learning(model,
                 mean = regression_model.predict(pool)
 
             # Calculate and save scores
-            scores = mean_squared_error(y_true, mean)
-            mse[i+1,0] = scores
+            scores[i+1,0] = mean_squared_error(y_true, mean)
+            scores[i+1,1] = mean_absolute_error(y_true, mean)
+            scores[i+1,2] = max_error(y_true, mean)
             max_value[i+1,0] = np.max(observation_y)
         
     #transform results to a pandas DataFrame
     if calculate_test_metrics:
-        results = np.vstack([n_observations, mse.T, max_value.T])
-        results = pd.DataFrame(results.T, columns=['m', 'mean_mse_test', 'max_observation'])
+        results = np.vstack([n_observations, scores.T, max_value.T])
+        results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
     
     if calculate_test_metrics:
         return sample_x, results
@@ -558,7 +564,7 @@ def run_batch_learning(model,
     data_indices = rand_num.copy()
 
     #To save the MSE
-    mse = np.zeros((active_learning_steps+1,1))
+    scores = np.zeros((active_learning_steps+1,3))
     max_value = np.zeros((active_learning_steps+1,1))
     n_observations = np.linspace(initial_samples, initial_samples+(active_learning_steps)*batch_size,
                                  active_learning_steps+1)
@@ -576,9 +582,11 @@ def run_batch_learning(model,
     mask = np.ones(y_true.size, dtype=bool)
     mask[data_indices] = False
     mask_indices = np.where(mask==True)[0]
-    scores = mean_squared_error(y_true[mask], mean[mask])
+
     #Save scores
-    mse[0,0] = scores
+    scores[0,0] = mean_squared_error(y_true, mean)
+    scores[0,1] = mean_absolute_error(y_true, mean)
+    scores[0,2] = max_error(y_true, mean)
     max_value[0,0] = np.max(observation_y)
 
     
@@ -716,16 +724,17 @@ def run_batch_learning(model,
 
         if isinstance(test_set, np.ndarray):
             mean_test = regression_model.predict(test_set)
-            scores = mean_squared_error(y_true_test, mean_test)
+            scores[i+1,0] = mean_squared_error(y_true_test, mean_test)
+            scores[i+1,1] = mean_absolute_error(y_true_test, mean_test)
+            scores[i+1,2] = max_error(y_true_test, mean_test)
         else:
-            scores = mean_squared_error(y_true[mask], mean[mask])
-        #Save scores
-        mse[i+1,0] = scores
-        max_value[i+1,0] = np.max(observation_y)
+            scores[i+1,0] = mean_squared_error(y_true[mask], mean[mask])
+            scores[i+1,1] = mean_absolute_error(y_true[mask], mean[mask])
+            scores[i+1,2] = max_error(y_true[mask], mean[mask])
         
     #transform restuls to an pandas DataFrame
-    results = np.vstack([n_observations, mse.T, max_value.T])
-    results = pd.DataFrame(results.T, columns=['m', 'mean_mse_test', 'max_observation'])
+    results = np.vstack([n_observations, scores.T, max_value.T])
+    results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
     
     if return_samples == True:
         return results, sample_x
