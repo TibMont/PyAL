@@ -687,6 +687,8 @@ def run_batch_learning(model,
                 imp = std*mask_z
                 index = np.where(imp==np.max(imp))[0]
             elif acquisition_function =='ideal':
+                y_true = np.zeros(len(pool))
+                y_true[data_indices] = estimated_observation_y
                 imp = IDEAL(data_indices, pool, mean, y_true, alpha)
                 imp = imp*mask_z
                 index = np.where(imp==np.max(imp))[0]

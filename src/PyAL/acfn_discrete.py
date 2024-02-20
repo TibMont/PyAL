@@ -96,8 +96,8 @@ def IDEAL(I_act, grid, mean, y_true, alpha=1):
         mean = mean.reshape(-1,1)
     Yhat = mean
 
-    Ymax = np.max(y_true)
-    Ymin = np.min(y_true)
+    Ymax = np.max(Y_act)
+    Ymin = np.min(Y_act)
     Ymax += 1.e-8
     Yscale = (Ymax - Ymin) / 2.
     dY2 = (2 * Yscale) ** 2
