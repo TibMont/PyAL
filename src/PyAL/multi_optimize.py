@@ -451,7 +451,7 @@ def std_con(x, model, aggregation_function, *args, **kwargs):
 
 def run_continuous_batch_learning_multi(models, 
            aggregation_function,
-           regression_model,
+           regression_models,
            acquisition_function = 'ideal',
            opt_method = 'PSO',
            pool = None, 
@@ -469,14 +469,17 @@ def run_continuous_batch_learning_multi(models,
            poly_degree = 3,
            calculate_test_metrics = True,
            verbose=True,
+           single_update = False,
            **kwargs
            ):
     '''
     Multi-objective batch-mode Active Learning in continuous parameter space. This method is similar to 
-    'run_continuous_batch_learning' but also enables to take into account multiple objective functions. It lacks some functionality of 
-    the previously mentioned function from which it is derived.
+    'run_continuous_batch_learning' but also enables to take into account multiple objective functions. 
     Multiple objectives are handeled by an aggregation function, which combines the individual output for each data point of 
-    each objective into a single output value. 
+    each objective into a single output value. The aggregation functions needs to be provided customly.
+    For each objective function it is also possible to use an individual model. E.g. we can use Gaussian Process Regression for objective 1 and 
+    Linear Regression for objective 2.
+
     The active learning acquisition functions are modified in order to also take the aggregation function as an argument. Therefore, active learning 
     acquisition functions from outside this module are not compatible.
 
@@ -485,23 +488,27 @@ def run_continuous_batch_learning_multi(models,
     Parameters
     ----------
     models : List of model class
-        Models to generate true data for each objective.
+        Models to generate true data for each objective. One model per objective needs to be provided.
     aggregation_function : callable
-        Function to aggregate multiple outputs for various objective functions.
-    regression_model: sklearn model, str, optional
-        scikit-learn regression model.
+        Function to aggregate multiple outputs for various objective functions. The function needs to get an np_array as input and also 
+        needs a parameter 'uncert' which tells the function if it should aggregate uncertainty or not, in case we want to aggregate uncertainty different
+        than the mean prediction.
+    regression_models: sklearn model, list
+        scikit-learn regression models. Either a single model can be given or a list of models with a length corresponding to the number of objectives.
     acquissition_function : str, optional
         Acquisition function. The default is 'ideal'.
     opt_method : str, optional
         The method to optimize the acquisition function. Choose from 'lbfgs' and 'PSO'. The default is 'PSO'.
     pool : nd_array, None, optional
-        Array containing pool of data. For 'None' a grid with 100 points in each dimension is created. The default is 'None'.
+        Array containing pool of data for testing. For 'None' a grid with 100 points in each dimension is created. 
+        This is only used when 'calculate_test_metrics' is True. The default is 'None'.
     batch_size : int, optional
         Batch size for Active Learning. The model is updated only with true data when a batch is completed. The default value is 1.
     noise : float, optional
         Noise in observation. The default is 0.1.
-    initial_samples : int, optional
-        Number of initial samples to draw from the pool. The default is 2.
+    initial_samples : nd_array, int, optional
+        If an integer is provided: Number of initial samples to draw. The default is 2.
+        If an nd_array is provided: Initial data points. The parameter 'initialization' must be 'data'.
     active_learning_steps : int, optional
         Number of active learning steps to perform. The default is 10.
     lim : list, optional
@@ -515,7 +522,8 @@ def run_continuous_batch_learning_multi(models,
     initialization : str, optional
         Initialization method for generating initial data. Choose from 'random' and 'GSx'. 'random' uses Latin Hypercube sampling 
         to generate the initial dat points. 'GSx' draws randomly the first data point and then uses the model-free GSx method to sample
-        the other initial data points. The default value is 'random'.
+        the other initial data points. If data is chosen, the initial data is assumed to be provided by
+        'initial_samples'. The default value is 'random'.
     pso_options : dict, optional
         Dictionary with parameters for the Particle Swarm Optimization. Only used when opt_method is 'PSO'. For 'None' default values are used. 
         ['c1': 0.5, 'c2': 0.3, 'w': 0.9, 'p':dimensions*10, 'i':200]. c1 and c2 are swarm parmeters, w is the inertia, p gives the number
@@ -532,29 +540,40 @@ def run_continuous_batch_learning_multi(models,
 
     Returns
     -------
+    samples : nd_array
+        Numpy array which contains the unscaled features for data points in the order in which they were selected.
     results : pd_DataFrame
-        Pandas DataFrame containing the columns: 'm', 'mean_mse_test', 'max_observation'. Data is stored for each active learning step, 
-        where 'm' gives the number of data used for training, 'mean_mse_test' the MSE of the test set and 'max_observation' the maximum 
-        value observed so far.
+        Pandas DataFrame containing the columns: 'm', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 
+        'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'. Data is stored for each active learning step, 
+        where 'm' gives the number of data used for training, 'mean_MSE_train' and 'mean_MSE_test' the MSE of the training and test set, respectively,
+        and 'max_observation' the maximum value observed so far. MAE corresponds to the Mean Absolute Error and MaxE to the maximum absolute error.
 
     '''
-    
-    if isinstance(regression_model, LinearRegression):
-        if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
-            print('Acquisition functin is not implemented for Linear Regression: {}'.format(acquisition_function))
-            exit()
-    elif not isinstance(regression_model, GPR):
-        if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
-            print('Acquisition functin is not implemented for Non-GPR models: {}'.format(acquisition_function))
-            exit()
+    #Check consistency of parameters
+    if isinstance(regression_models, list):
+        if len(regression_models) != len(models):
+            raise Exception('Inconsistent number of data and regression models: {}, {}'.format(len(models), len(regression_model)))
     else:
-        if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc', 'ei', 'ucb', 'poi', 'std', 'uidal', 'SGSx']:
-            print('Acquisition function not implemented: {}'.format(acquisition_function))
-            exit()
+        regression_models = [copy.deepcopy(regression_models) for i in range(len(models))]
+    
+    for regression_model in regression_models:
+        if isinstance(regression_model, LinearRegression):
+            if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
+                print('Acquisition functin is not implemented for Linear Regression: {}'.format(acquisition_function))
+                exit()
+        elif not isinstance(regression_model, GPR):
+            if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
+                print('Acquisition functin is not implemented for Non-GPR models: {}'.format(acquisition_function))
+                exit()
+        else:
+            if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc', 'ei', 'ucb', 'poi', 'std', 'uidal', 'SGSx']:
+                print('Acquisition function not implemented: {}'.format(acquisition_function))
+                exit()
 
     #Set random number generator
     rng = np.random.RandomState(seed=random_state)
 
+    #Set polynomial feature transformer
     poly_transformer = PolynomialFeatures(degree=poly_degree)
 
     dimensions = models[0].n_features
@@ -593,31 +612,43 @@ def run_continuous_batch_learning_multi(models,
 
 
     #Generate initial data
-    sampler = LHS(d=dimensions)
     if initialization == 'random':
-        sample_x_unscaled = sampler.random(initial_samples)
-        sample_x = scale(sample_x_unscaled, *lim)
+        if isinstance(initial_samples, int):
+            sampler = LHS(d=dimensions)
+            sample_x_unscaled = sampler.random(initial_samples)
+            sample_x = scale(sample_x_unscaled, *lim)
+        else:
+            raise Exception('initial_samples must be an integer for initialization method random')
     elif initialization == 'GSx':
-        sample_x, _ = run_continuous_batch_learning_multi(models, 
-           aggregation_function, 
-           regression_model,
-           acquisition_function = 'GSx',
-           opt_method = opt_method,
-           pool = pool, 
-           batch_size = 1,
-           noise=noise,
-           initial_samples=1, 
-           active_learning_steps=initial_samples-1,
-           lim=lim,
-           alpha=alpha,
-           n_jobs=n_jobs,
-           random_state=random_state,
-           initialization='random',
-           pso_options=pso_options,
-           poly_degree = poly_degree,
-           calculate_test_metrics=False,
-           verbose=False
-           )
+        if isinstance(initial_samples, int):
+            sample_x, _ = run_continuous_batch_learning_multi(models, 
+            aggregation_function, 
+            regression_models,
+            acquisition_function = 'GSx',
+            opt_method = opt_method,
+            pool = pool, 
+            batch_size = 1,
+            noise=noise,
+            initial_samples=1, 
+            active_learning_steps=initial_samples-1,
+            lim=lim,
+            alpha=alpha,
+            n_jobs=n_jobs,
+            random_state=random_state,
+            initialization='random',
+            pso_options=pso_options,
+            poly_degree = poly_degree,
+            calculate_test_metrics=False,
+            verbose=False
+            )
+        else:
+            raise Exception('initial_samples must be an integer for initialization method GSx')
+    elif initialization == 'data':
+        if isinstance(initial_samples, np.ndarray):
+            sample_x = initial_samples
+            initial_samples = len(sample_x)
+        else:
+            raise Exception('initial_samples must be a nd_array for initialization method data')
     else:
         raise Exception('Initialization method not implemented')
 
@@ -627,18 +658,17 @@ def run_continuous_batch_learning_multi(models,
 
     observation_y_aggregated = aggregation_function(observation_y, **kwargs)
 
-    #To save the MSE
+    #To save the metrics
     scores_train = np.zeros((active_learning_steps+1,3))
     max_value = np.zeros((active_learning_steps+1,1))
     n_observations = np.linspace(initial_samples, initial_samples+(active_learning_steps)*batch_size,
                             active_learning_steps+1)
     
     if calculate_test_metrics:
-        #To save the MSE
+        #To save the metrics
         scores_test = np.zeros((active_learning_steps+1,3))
 
     #Fit initial model
-    regression_models = []
     mean = np.zeros((n_models, len(pool)))
     std = np.zeros((n_models, len(pool)))
 
@@ -646,33 +676,32 @@ def run_continuous_batch_learning_multi(models,
     std_train = np.zeros((n_models, len(sample_x)))
 
     for i in range(n_models):
-        if isinstance(regression_model, LinearRegression):
+        if isinstance(regression_models[i], LinearRegression):
             sample_x_poly = poly_transformer.fit_transform(sample_x)
-            regression_model.fit(sample_x_poly, observation_y[i])
+            regression_models[i].fit(sample_x_poly, observation_y[i])
         else:
-            regression_model.fit(sample_x, observation_y[i])
+            regression_models[i].fit(sample_x, observation_y[i])
 
-        #Initial model predictions  
+        #Initial model predictions for test set
         if calculate_test_metrics:  
-            if isinstance(regression_model, GPR):
-                mean[i,...], std[i,...] = regression_model.predict(pool,return_std=True)
-            elif isinstance(regression_model, LinearRegression):
-                mean[i,...] = regression_model.predict(pool_poly)
+            if isinstance(regression_models[i], GPR):
+                mean[i,...], std[i,...] = regression_models[i].predict(pool,return_std=True)
+            elif isinstance(regression_models[i], LinearRegression):
+                mean[i,...] = regression_models[i].predict(pool_poly)
             else:
-                mean[i,...] = regression_model.predict(pool)
-        
-        regression_models.append(copy.deepcopy(regression_model))
+                mean[i,...] = regression_model[i].predict(pool)
 
-        if isinstance(regression_model, GPR):
-            mean_train[i,...], std_train[i,...] = regression_model.predict(sample_x,return_std=True)
-        elif isinstance(regression_model, LinearRegression):
-            mean_train[i,...] = regression_model.predict(sample_x_poly)
+        #Initial model predictions for training set
+        if isinstance(regression_models[i], GPR):
+            mean_train[i,...], std_train[i,...] = regression_models[i].predict(sample_x,return_std=True)
+        elif isinstance(regression_models[i], LinearRegression):
+            mean_train[i,...] = regression_models[i].predict(sample_x_poly)
         else:
-            mean_train[i,...] = regression_model.predict(sample_x)
+            mean_train[i,...] = regression_models[i].predict(sample_x)
     
+    #Save scores
     if calculate_test_metrics:
         mean_aggregated = aggregation_function(mean, **kwargs)
-        #Save scores
         scores_test[0,0] = mean_squared_error(y_true_aggregated, mean_aggregated)
         scores_test[0,1] = mean_absolute_error(y_true_aggregated, mean_aggregated)
         scores_test[0,2] = max_error(y_true_aggregated, mean_aggregated)
@@ -684,8 +713,7 @@ def run_continuous_batch_learning_multi(models,
     max_value[0,0] = np.max(observation_y_aggregated)
 
 
-    ###############################################################
-    #ToDO: implement loop over several model functions from here on
+    #Active Learning loop starts here
     ###############################################################
 
     #Start active learning
@@ -899,9 +927,25 @@ def run_continuous_batch_learning_multi(models,
                                                             estimated_observation_new_aggregated])
             batch_sample[j,...] = new_x
 
+        #Active learning loop ends here
         #########################################################################################################
+        
         # Updated pool with batch data
         sample_x = np.vstack([sample_x, batch_sample])
+
+        if single_update:
+            #transform results to a pandas DataFrame
+            if calculate_test_metrics:
+                results = np.hstack([n_observations[0], scores_train[0].T, scores_test[0].T, max_value[0].T]).reshape(1,-1)
+                print(results)
+                results = pd.DataFrame(results, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
+            else:
+                results = np.hstack([n_observations[0], scores_train[0].T, max_value[0].T])
+                results = pd.DataFrame(results, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
+            
+            return sample_x, results
+
+
         if isinstance(regression_model, LinearRegression):
             sample_x_poly = poly_transformer.fit_transform(sample_x)
 
@@ -921,6 +965,7 @@ def run_continuous_batch_learning_multi(models,
         mean_train = np.zeros((n_models, len(sample_x)))
         std_train = np.zeros((n_models, len(sample_x)))
 
+        #Calculate metrics
         if verbose: print('Active learning step: {}'.format(a))
         for i in range(n_models):
             if isinstance(regression_models[i], LinearRegression):
