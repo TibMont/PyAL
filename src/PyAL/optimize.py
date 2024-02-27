@@ -225,6 +225,18 @@ def run_continuous_batch_learning(model,
             estimated_sample_x_poly = sample_x_poly.copy()
         
         for j in range(batch_size):
+            
+            if j != 0:
+                if isinstance(regression_model, LinearRegression):
+                    regression_model.fit(estimated_sample_x_poly, estimated_observation_y)
+                else:
+                    regression_model.fit(estimated_sample_x, estimated_observation_y)
+                #if isinstance(regression_model, GPR):
+                #    mean, std = regression_model.predict(pool,return_std=True)
+                #elif isinstance(regression_model, LinearRegression):
+                #    mean = regression_model.predict(pool_poly)
+                #else:
+                #    mean = regression_model.predict(pool)
 
             #Choose from optimization routines
             #TODO: enable more customizability of parameters for optimization routines
@@ -300,7 +312,7 @@ def run_continuous_batch_learning(model,
                 else:
                     dict_keys = pso_options.keys()
                     if 'c1' not in dict_keys  or 'c2' not in dict_keys or 'w' not in dict_keys or 'p' not in dict_keys or 'i' not in dict_keys:
-                        raise Exception('c1, c2, w and p keys must be in pso_options.')
+                        raise Exception('c1, c2, w, p and i keys must be in pso_options.')
                 n_particles = int(pso_options['p'])
                 n_iters = int(pso_options['i'])
 
@@ -406,7 +418,6 @@ def run_continuous_batch_learning(model,
             scores_test[i+1,0] = mean_squared_error(y_true, mean)
             scores_test[i+1,1] = mean_absolute_error(y_true, mean)
             scores_test[i+1,2] = max_error(y_true, mean)
-            max_value[i+1,0] = np.max(observation_y)
 
         if isinstance(regression_model, GPR):
             mean_train, std_train = regression_model.predict(sample_x,return_std=True)
@@ -415,9 +426,10 @@ def run_continuous_batch_learning(model,
         else:
             mean_train = regression_model.predict(sample_x)
 
-        scores_train[0,0] = mean_squared_error(observation_y, mean_train)
-        scores_train[0,1] = mean_absolute_error(observation_y, mean_train)
-        scores_train[0,2] = max_error(observation_y, mean_train)
+        scores_train[i+1,0] = mean_squared_error(observation_y, mean_train)
+        scores_train[i+1,1] = mean_absolute_error(observation_y, mean_train)
+        scores_train[i+1,2] = max_error(observation_y, mean_train)
+        max_value[i+1,0] = np.max(observation_y)
         
     #transform results to a pandas DataFrame
     if calculate_test_metrics:
