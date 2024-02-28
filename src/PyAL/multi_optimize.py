@@ -21,6 +21,10 @@ import sys
 import os
 import warnings
 
+import logging
+
+logger = logging.getLogger('basic_logger')
+
 if not sys.warnoptions:
     print('Disabled warnings')
     warnings.simplefilter("ignore")
@@ -549,6 +553,9 @@ def run_continuous_batch_learning_multi(models,
         and 'max_observation' the maximum value observed so far. MAE corresponds to the Mean Absolute Error and MaxE to the maximum absolute error.
 
     '''
+
+    logger.info('Setting up Active Learning')
+
     #Check consistency of parameters
     if isinstance(regression_models, list):
         if len(regression_models) != len(models):
@@ -581,6 +588,7 @@ def run_continuous_batch_learning_multi(models,
 
     #Generate a pool of sample data points for testing
     if calculate_test_metrics == True:
+        logger.info('Test metrics will be calculated.')
         if not isinstance(pool, np.ndarray):
             x = []
             for i in range(dimensions):
@@ -591,6 +599,8 @@ def run_continuous_batch_learning_multi(models,
             pool = pool.reshape(len(x[0]**dimensions), dimensions)
 
         pool_poly = poly_transformer.fit_transform(pool)
+    else:
+        logger.info('Test metrics will not be calculated.')
 
     #Check if noise is int or float, noise will be applied to every model individually
     if isinstance(noise, int) or isinstance(noise, float):
@@ -599,6 +609,8 @@ def run_continuous_batch_learning_multi(models,
         if verbose:
             print('Noise converted: ')
             print('from {} to {}'.format(noise_old, noise))
+        logger.info('Noise converted: ')
+        logger.info('from {} to {}'.format(noise_old, noise))
 
     if calculate_test_metrics: 
         #Number of data points in pool
@@ -612,6 +624,7 @@ def run_continuous_batch_learning_multi(models,
 
 
     #Generate initial data
+    logger.info('Initialization method: {}'.format(initialization))
     if initialization == 'random':
         if isinstance(initial_samples, int):
             sampler = LHS(d=dimensions)
@@ -715,9 +728,14 @@ def run_continuous_batch_learning_multi(models,
 
     #Active Learning loop starts here
     ###############################################################
+    logger.info('Start Active Learning')
+    logger.info('Optimization method: {}'.format(opt_method))
+    logger.info('Acquisition function: {}'.format(acquisition_function))
+
 
     #Start active learning
     for a in range(active_learning_steps):
+        logger.info('Step {}'.format(a+1))
 
         #Save batch results separately, since observation is only estimated
         batch_sample = np.zeros((batch_size, dimensions))
@@ -777,7 +795,7 @@ def run_continuous_batch_learning_multi(models,
                     res = minimize(UCB_con, x0=x0, args=(regression_models, aggregation_function, alpha, *optargs), 
                                 bounds=lim_t)
                 elif acquisition_function == 'ideal':
-                    res = minimize(IDEAL_con, x0=x0, args=(estimated_sample_x, regression_models, estimated_observation_y, lim, aggregation_function, alpha, poly_x, *optargs), 
+                    res = minimize(IDEAL_con, x0=x0, args=(estimated_sample_x, regression_models, estimated_observation_y_aggregated, lim, aggregation_function, alpha, poly_x, *optargs), 
                                 bounds=lim_t)
                 elif acquisition_function == 'uidal':
                     res = minimize(UIDAL_con, x0=x0, args=(estimated_sample_x, regression_models, aggregation_function, alpha, *optargs), 
@@ -850,7 +868,7 @@ def run_continuous_batch_learning_multi(models,
                 elif acquisition_function == 'ideal':
                     cost, new_x = optimizer.optimize(IDEAL_con, iters=200, verbose=False, n_processes=n_jobs,
                                                      x_samples=estimated_sample_x,
-                                                    model=regression_models, y_true=estimated_observation_y, lim=lim, aggregation_function=aggregation_function,
+                                                    model=regression_models, y_true=estimated_observation_y_aggregated, lim=lim, aggregation_function=aggregation_function,
                                                     alpha=alpha, poly_x=poly_x, **kwargs)
                     
                 elif acquisition_function == 'uidal':
@@ -929,7 +947,7 @@ def run_continuous_batch_learning_multi(models,
 
         #Active learning loop ends here
         #########################################################################################################
-        
+
         # Updated pool with batch data
         sample_x = np.vstack([sample_x, batch_sample])
 
@@ -937,10 +955,9 @@ def run_continuous_batch_learning_multi(models,
             #transform results to a pandas DataFrame
             if calculate_test_metrics:
                 results = np.hstack([n_observations[0], scores_train[0].T, scores_test[0].T, max_value[0].T]).reshape(1,-1)
-                print(results)
                 results = pd.DataFrame(results, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
             else:
-                results = np.hstack([n_observations[0], scores_train[0].T, max_value[0].T])
+                results = np.hstack([n_observations[0], scores_train[0].T, max_value[0].T]).reshape(1,-1)
                 results = pd.DataFrame(results, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
             
             return sample_x, results
@@ -1016,7 +1033,9 @@ def run_continuous_batch_learning_multi(models,
         scores_train[a+1,1] = mean_absolute_error(observation_y_aggregated, mean_train_aggregated)
         scores_train[a+1,2] = max_error(observation_y_aggregated, mean_train_aggregated)
         max_value[a+1,0] = np.max(observation_y_aggregated)
-        
+    
+    logger.info('Finished Active Learning')
+
     #transform results to a pandas DataFrame
     if calculate_test_metrics:
         results = np.vstack([n_observations, scores_train.T, scores_test.T, max_value.T])
