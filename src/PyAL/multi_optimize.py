@@ -622,12 +622,11 @@ def run_continuous_batch_learning_multi(models,
 
         y_true_aggregated = aggregation_function(y_true, **kwargs)
 
-
+    sampler = LHS(d=dimensions)
     #Generate initial data
     logger.info('Initialization method: {}'.format(initialization))
     if initialization == 'random':
         if isinstance(initial_samples, int):
-            sampler = LHS(d=dimensions)
             sample_x_unscaled = sampler.random(initial_samples)
             sample_x = scale(sample_x_unscaled, *lim)
         else:
@@ -652,7 +651,8 @@ def run_continuous_batch_learning_multi(models,
             pso_options=pso_options,
             poly_degree = poly_degree,
             calculate_test_metrics=False,
-            verbose=False
+            verbose=False,
+            **kwargs
             )
         else:
             raise Exception('initial_samples must be an integer for initialization method GSx')
@@ -664,6 +664,7 @@ def run_continuous_batch_learning_multi(models,
             raise Exception('initial_samples must be a nd_array for initialization method data')
     else:
         raise Exception('Initialization method not implemented')
+    logger.info('Initialization finished.')
 
     observation_y = np.zeros((n_models, len(sample_x)))
     for i in range(n_models):
