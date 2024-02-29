@@ -703,7 +703,7 @@ def run_continuous_batch_learning_multi(models,
             elif isinstance(regression_models[i], LinearRegression):
                 mean[i,...] = regression_models[i].predict(pool_poly)
             else:
-                mean[i,...] = regression_model[i].predict(pool)
+                mean[i,...] = regression_models[i].predict(pool)
 
         #Initial model predictions for training set
         if isinstance(regression_models[i], GPR):
@@ -930,7 +930,7 @@ def run_continuous_batch_learning_multi(models,
                     std_new[i,...] = fictive_noise_level
                 else:
                     mean_new[i,...] = regression_models[i].predict(new_x.reshape(1,-1))
-                    std_new = fictive_noise_level
+                    std_new[i,...] = fictive_noise_level
                 estimated_observation_new[i,...] = mean_new[i,]+rng.normal(0, std_new[i], size=1)
             
             estimated_observation_new_aggregated = aggregation_function(estimated_observation_new, **kwargs)
