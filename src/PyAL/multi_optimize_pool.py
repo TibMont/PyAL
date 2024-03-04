@@ -40,11 +40,11 @@ def conductivity_aggregation_fn(x, delta_beta, uncert=False):
     #print(x.shape)
     #print(x)
     if uncert == False:
-        conductivity = x[0,:] - delta_beta*x[1,:] - delta_beta*x[2,:]**2
+        conductivity = x[0,:] - delta_beta*x[1,:] - x[2,:]*delta_beta**2
         return conductivity
 
     else:
-        uncertainty = x[0,:] + delta_beta*x[1,:] + delta_beta*x[2,:]**2
+        uncertainty = x[0,:] + delta_beta*x[1,:] + x[2,:]*delta_beta**2
         return uncertainty
     
 def QBC_multi(x, models, aggregation_function, poly_x, **kwargs):
@@ -78,7 +78,7 @@ def QBC_multi(x, models, aggregation_function, poly_x, **kwargs):
     return result
     
 
-def run_batch_learning(models,
+def run_batch_learning_multi(models,
            aggregation_function, 
            regression_models,
            acquisition_function = 'ideal',
@@ -97,6 +97,7 @@ def run_batch_learning(models,
            fictive_noise_level = 0,
            calculate_test_metrics = True,
            single_update=False,
+           verbose=False,
            **kwargs
            ):
     '''
@@ -180,6 +181,15 @@ def run_batch_learning(models,
     dimensions = models[0].n_features
     n_models = len(models)
 
+    if isinstance(noise, int) or isinstance(noise, float):
+        noise_old = noise
+        noise = [noise for _ in range(n_models)]
+        if verbose:
+            print('Noise converted: ')
+            print('from {} to {}'.format(noise_old, noise))
+        logger.info('Noise converted: ')
+        logger.info('from {} to {}'.format(noise_old, noise))
+
     #Generate a pool of sample data points
     if not isinstance(pool, np.ndarray):
         x = []
@@ -205,21 +215,23 @@ def run_batch_learning(models,
                 model = models[i]
                 y_true_test[i, ...] = model.evaluate(test_set, noise = noise[i])
             extra_test_set = True
+            y_true_test_aggregated = aggregation_function(y_true_test, **kwargs)
         else:
             n_data_test = len(pool)
-            y_true_test = np.zeros((n_models, n_data_test))
+            y_true = np.zeros((n_models, n_data_test))
             for i in range(n_models):
                 model = models[i]
-                y_true_test[i, ...] = model.evaluate(pool, noise = noise[i])
+                y_true[i, ...] = model.evaluate(pool, noise = noise[i])
             extra_test_set = False
-        
-        y_true_test_aggregated = aggregation_function(y_true_test, **kwargs)
+            y_true_aggregated = aggregation_function(y_true, **kwargs)
+    
+    
 
     #Randomly pick data points in pool for initial observations
     if initialization == 'random':
         rand_num = rng.randint(0,n_data, size=initial_samples)
     elif initialization == 'GSx':
-        initial_data, _ = run_batch_learning(models, 
+        initial_data, _ = run_batch_learning_multi(models, 
            aggregation_function,
            regression_models,
            acquisition_function = 'GSx',
@@ -233,6 +245,7 @@ def run_batch_learning(models,
            random_state=random_state,
            return_samples=return_samples,
            initialization='random',
+           test_set=test_set,
            poly_degree=poly_degree,
            **kwargs
            )
@@ -264,14 +277,15 @@ def run_batch_learning(models,
     if calculate_test_metrics:
         scores_test = np.zeros((active_learning_steps+1,3))
 
-    if isinstance(regression_model, LinearRegression):
-        regression_model.fit(sample_x_poly, observation_y)
-    else:
-        regression_model.fit(sample_x, observation_y)
+    for i in range(n_models):
+        if isinstance(regression_models[i], LinearRegression):
+            regression_models[i].fit(sample_x_poly, observation_y[i])
+        else:
+            regression_models[i].fit(sample_x, observation_y[i])
 
     #Fit initial model
-    mean = np.zeros((n_models, len(sample_x)))
-    std = np.zeros((n_models, len(sample_x)))
+    mean = np.zeros((n_models, len(pool)))
+    std = np.zeros((n_models, len(pool)))
 
     if calculate_test_metrics:
         if extra_test_set == False:
@@ -281,6 +295,7 @@ def run_batch_learning(models,
             test_set = pool[mask_indices]
             test_set_poly = pool_poly[mask_indices]
             y_true_test = y_true[mask_indices]
+            y_true_test_aggregated = y_true_aggregated[mask_indices]
             
         mean_test = np.zeros((n_models, len(test_set)))
         std_test = np.zeros((n_models, len(test_set)))
@@ -315,7 +330,7 @@ def run_batch_learning(models,
     scores_train[0,0] = mean_squared_error(observation_y_aggregated, mean_train_aggregated[data_indices])
     scores_train[0,1] = mean_absolute_error(observation_y_aggregated, mean_train_aggregated[data_indices])
     scores_train[0,2] = max_error(observation_y_aggregated, mean_train_aggregated[data_indices])
-    max_value[0,0] = np.max(observation_y)
+    max_value[0,0] = np.max(observation_y_aggregated)
 
     
     #Start active learning
@@ -336,9 +351,9 @@ def run_batch_learning(models,
                 std = np.zeros((n_models, len(pool)))
                 for i in range(n_models):
                     if isinstance(regression_models[i], LinearRegression):
-                        regression_models[i].fit(estimated_sample_x_poly, estimated_observation_y)
+                        regression_models[i].fit(estimated_sample_x_poly, estimated_observation_y[i])
                     else:
-                        regression_models[i].fit(estimated_sample_x, estimated_observation_y)
+                        regression_models[i].fit(estimated_sample_x, estimated_observation_y[i])
                     if isinstance(regression_models[i], GPR):
                         mean[i,...], std[i,...] = regression_models[i].predict(pool,return_std=True)
                     elif isinstance(regression_models[i], LinearRegression):
@@ -383,9 +398,9 @@ def run_batch_learning(models,
                 imp = std_train_aggregated*mask_z
                 index = np.where(imp==np.max(imp))[0]
             elif acquisition_function =='ideal':
-                y_true_aggregated = np.zeros(len(pool))
-                y_true_aggregated[data_indices] = estimated_observation_y_aggregated
-                imp = IDEAL(data_indices, pool, mean_train_aggregated, y_true_aggregated, alpha)
+                y_true_aggregated_id = np.zeros(len(pool))
+                y_true_aggregated_id[data_indices] = estimated_observation_y_aggregated
+                imp = IDEAL(data_indices, pool, mean_train_aggregated, y_true_aggregated_id, alpha)
                 imp = imp*mask_z
                 index = np.where(imp==np.max(imp))[0]
             elif acquisition_function =='uidal':
@@ -406,7 +421,7 @@ def run_batch_learning(models,
                             regression_models[i].fit(estimated_sample_x[train_index], estimated_observation_y[i][train_index])
                         alpha_models.append(copy.deepcopy(regression_model))
                     S_models.append(alpha_models)
-                imp = QBC(pool, S_models, aggregation_function, poly_x, **kwargs)
+                imp = QBC_multi(pool, S_models, aggregation_function, poly_x, **kwargs)
                 imp = imp*mask_z
                 index = np.where(imp==np.max(imp))[0]
             elif acquisition_function == 'GSx':
@@ -453,12 +468,12 @@ def run_batch_learning(models,
                     mean_new[i,...] = regression_models[i].predict(pool[index].reshape(1,-1))
                     std_new[i,...] = fictive_noise_level
 
-                estimated_observation_new[i,...] = mean_new+rng.normal(0, std_new, size=1)
+                estimated_observation_new[i,...] = mean_new[i]+rng.normal(0, std_new[i], size=1)
 
             estimated_observation_new_aggregated = aggregation_function(estimated_observation_new, **kwargs)
 
             estimated_observation_y = np.hstack([estimated_observation_y, estimated_observation_new])
-            estimated_observation_y_aggregated = np.hstack([estimated_observation_y, estimated_observation_new_aggregated])
+            estimated_observation_y_aggregated = np.hstack([estimated_observation_y_aggregated, estimated_observation_new_aggregated])
             batch_indices[j] = index
 
         #Active learning loop ends here
@@ -493,8 +508,8 @@ def run_batch_learning(models,
         observation_y_aggregated = np.hstack([observation_y_aggregated, observation_new_aggregated])
 
         #Fit new model with updated real training set
-        mean = np.zeros((n_models, len(sample_x)))
-        std = np.zeros((n_models, len(sample_x)))
+        mean = np.zeros((n_models, len(pool)))
+        std = np.zeros((n_models, len(pool)))
 
         if calculate_test_metrics:
             if extra_test_set == False:
@@ -504,16 +519,17 @@ def run_batch_learning(models,
                 test_set = pool[mask_indices]
                 test_set_poly = pool_poly[mask_indices]
                 y_true_test = y_true[mask_indices]
+                y_true_test_aggregated = y_true_aggregated[mask_indices]
 
             mean_test = np.zeros((n_models, len(test_set)))
             std_test = np.zeros((n_models, len(test_set)))
 
-        for i in range(models):
+        for i in range(n_models):
 
             if isinstance(regression_model, LinearRegression):
-                regression_model.fit(sample_x_poly, observation_y)
+                regression_model.fit(sample_x_poly, observation_y[i])
             else:
-                regression_model.fit(sample_x, observation_y)
+                regression_model.fit(sample_x, observation_y[i])
 
             ###Here###
             if calculate_test_metrics:
@@ -524,26 +540,26 @@ def run_batch_learning(models,
                 else:
                     mean_test[i,...] = regression_models[i].predict(test_set)
 
-                if isinstance(regression_models[i], GPR):
-                    mean[i,...], std[i,...] = regression_models[i].predict(sample_x,return_std=True)
-                elif isinstance(regression_models[i], LinearRegression):
-                    mean[i,...] = regression_models[i].predict(sample_x_poly)
-                else:
-                    mean[i,...] = regression_models[i].predict(sample_x)
+            if isinstance(regression_models[i], GPR):
+                mean[i,...], std[i,...] = regression_models[i].predict(pool,return_std=True)
+            elif isinstance(regression_models[i], LinearRegression):
+                mean[i,...] = regression_models[i].predict(pool_poly)
+            else:
+                mean[i,...] = regression_models[i].predict(pool)
 
         
         #Save scores
         if calculate_test_metrics:
             mean_test_aggregated = aggregation_function(mean_test, **kwargs)
-            scores_test[a+1,0] = mean_squared_error(y_true_aggregated, mean_test_aggregated)
-            scores_test[a+1,1] = mean_absolute_error(y_true_aggregated, mean_test_aggregated)
-            scores_test[a+1,2] = max_error(y_true_aggregated, mean_test_aggregated)
+            scores_test[a+1,0] = mean_squared_error(y_true_test_aggregated, mean_test_aggregated)
+            scores_test[a+1,1] = mean_absolute_error(y_true_test_aggregated, mean_test_aggregated)
+            scores_test[a+1,2] = max_error(y_true_test_aggregated, mean_test_aggregated)
         
         mean_train_aggregated = aggregation_function(mean, **kwargs)
         scores_train[a+1,0] = mean_squared_error(observation_y_aggregated, mean_train_aggregated[data_indices])
         scores_train[a+1,1] = mean_absolute_error(observation_y_aggregated, mean_train_aggregated[data_indices])
         scores_train[a+1,2] = max_error(observation_y_aggregated, mean_train_aggregated[data_indices])
-        max_value[a+1,0] = np.max(observation_y)
+        max_value[a+1,0] = np.max(observation_y_aggregated)
         
     #transform results to a pandas DataFrame
     if calculate_test_metrics:

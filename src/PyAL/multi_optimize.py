@@ -38,11 +38,11 @@ def conductivity_aggregation_fn(x, delta_beta, uncert=False):
     #print(x.shape)
     #print(x)
     if uncert == False:
-        conductivity = x[0,:] - delta_beta*x[1,:] - delta_beta*x[2,:]**2
+        conductivity = x[0,:] - delta_beta*x[1,:] - x[2,:]*delta_beta**2
         return conductivity
 
     else:
-        uncertainty = x[0,:] + delta_beta*x[1,:] + delta_beta*x[2,:]**2
+        uncertainty = x[0,:] + delta_beta*x[1,:] + x[2,:]*delta_beta**2
         return uncertainty
 
 
