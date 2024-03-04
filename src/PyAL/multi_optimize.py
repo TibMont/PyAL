@@ -566,11 +566,11 @@ def run_continuous_batch_learning_multi(models,
     for regression_model in regression_models:
         if isinstance(regression_model, LinearRegression):
             if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
-                print('Acquisition functin is not implemented for Linear Regression: {}'.format(acquisition_function))
+                print('Acquisition function is not implemented for Linear Regression: {}'.format(acquisition_function))
                 exit()
         elif not isinstance(regression_model, GPR):
             if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
-                print('Acquisition functin is not implemented for Non-GPR models: {}'.format(acquisition_function))
+                print('Acquisition function is not implemented for Non-GPR models: {}'.format(acquisition_function))
                 exit()
         else:
             if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc', 'ei', 'ucb', 'poi', 'std', 'uidal', 'SGSx']:
@@ -963,9 +963,9 @@ def run_continuous_batch_learning_multi(models,
             
             return sample_x, results
 
-
-        if isinstance(regression_model, LinearRegression):
-            sample_x_poly = poly_transformer.fit_transform(sample_x)
+        for regression_model in regression_models:
+            if isinstance(regression_model, LinearRegression):
+                sample_x_poly = poly_transformer.fit_transform(sample_x)
 
         observation_new = np.zeros((n_models, len(batch_sample)))
         for i in range(n_models):

@@ -801,7 +801,7 @@ def run_batch_learning(model,
         elif isinstance(regression_model, LinearRegression):
             mean = regression_model.predict(pool_poly)
         else:
-            mean = regression_model.predict(PolynomialFeatures)
+            mean = regression_model.predict(pool)
 
         #Save scores
         scores_train[i+1,0] = mean_squared_error(observation_y, mean[data_indices])
