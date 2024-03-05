@@ -274,8 +274,21 @@ def run_batch_learning_multi(models,
     max_value = np.zeros((active_learning_steps+1,1))
     n_observations = np.linspace(initial_samples, initial_samples+(active_learning_steps)*batch_size,
                                  active_learning_steps+1)
+    
+    scores_train_individual = []
+    max_value_individual = []
+    for i in range(n_models):
+        scores_train_individual.append(scores_train.copy())
+        max_value_individual.append(max_value.copy())
+
+
     if calculate_test_metrics:
         scores_test = np.zeros((active_learning_steps+1,3))
+
+        scores_test_individual = []
+        for i in range(n_models):
+            scores_test_individual.append(scores_train.copy())
+
 
     for i in range(n_models):
         if isinstance(regression_models[i], LinearRegression):
@@ -324,6 +337,11 @@ def run_batch_learning_multi(models,
         scores_test[0,1] = mean_absolute_error(y_true_test_aggregated, mean_test_aggregated)
         scores_test[0,2] = max_error(y_true_test_aggregated, mean_test_aggregated)
 
+        for i in range(n_models):
+            scores_test_individual[i][0,0] = mean_squared_error(y_true_test[i], mean_test[i])
+            scores_test_individual[i][0,1] = mean_absolute_error(y_true_test[i], mean_test[i])
+            scores_test_individual[i][0,2] = max_error(y_true_test[i], mean_test[i])
+
     #Save scores
     mean_train_aggregated = aggregation_function(mean, **kwargs)
     std_train_aggregated = aggregation_function(std, uncert=True, **kwargs)
@@ -331,6 +349,12 @@ def run_batch_learning_multi(models,
     scores_train[0,1] = mean_absolute_error(observation_y_aggregated, mean_train_aggregated[data_indices])
     scores_train[0,2] = max_error(observation_y_aggregated, mean_train_aggregated[data_indices])
     max_value[0,0] = np.max(observation_y_aggregated)
+
+    for i in range(n_models):
+        scores_train_individual[i][0,0] = mean_squared_error(observation_y[i], mean[i][data_indices])
+        scores_train_individual[i][0,1] = mean_absolute_error(observation_y[i], mean[i][data_indices])
+        scores_train_individual[i][0,2] = max_error(observation_y[i], mean[i][data_indices])
+        max_value_individual[i][0,0] = np.max(observation_y[i])
 
     
     #Start active learning
@@ -546,27 +570,55 @@ def run_batch_learning_multi(models,
                 mean[i,...] = regression_models[i].predict(pool_poly)
             else:
                 mean[i,...] = regression_models[i].predict(pool)
-
         
-        #Save scores
+        #############
         if calculate_test_metrics:
             mean_test_aggregated = aggregation_function(mean_test, **kwargs)
             scores_test[a+1,0] = mean_squared_error(y_true_test_aggregated, mean_test_aggregated)
             scores_test[a+1,1] = mean_absolute_error(y_true_test_aggregated, mean_test_aggregated)
             scores_test[a+1,2] = max_error(y_true_test_aggregated, mean_test_aggregated)
-        
+
+            for i in range(n_models):
+                scores_test_individual[i][a+1,0] = mean_squared_error(y_true_test[i], mean_test[i])
+                scores_test_individual[i][a+1,1] = mean_absolute_error(y_true_test[i], mean_test[i])
+                scores_test_individual[i][a+1,2] = max_error(y_true_test[i], mean_test[i])
+
+        #Save scores
         mean_train_aggregated = aggregation_function(mean, **kwargs)
+        std_train_aggregated = aggregation_function(std, uncert=True, **kwargs)
         scores_train[a+1,0] = mean_squared_error(observation_y_aggregated, mean_train_aggregated[data_indices])
         scores_train[a+1,1] = mean_absolute_error(observation_y_aggregated, mean_train_aggregated[data_indices])
         scores_train[a+1,2] = max_error(observation_y_aggregated, mean_train_aggregated[data_indices])
         max_value[a+1,0] = np.max(observation_y_aggregated)
+
+        for i in range(n_models):
+            scores_train_individual[i][a+1,0] = mean_squared_error(observation_y[i], mean[i][data_indices])
+            scores_train_individual[i][a+1,1] = mean_absolute_error(observation_y[i], mean[i][data_indices])
+            scores_train_individual[i][a+1,2] = max_error(observation_y[i], mean[i][data_indices])
+            max_value_individual[i][a+1,0] = np.max(observation_y[i])
+        ############            
         
     #transform results to a pandas DataFrame
     if calculate_test_metrics:
+        result_dict = {}
         results = np.vstack([n_observations, scores_train.T, scores_test.T, max_value.T])
         results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
+        result_dict['aggregated'] = results.copy()
+        
+        for i in range(n_models):
+            results = np.vstack([n_observations, scores_train_individual[i].T, scores_test_individual[i].T, max_value_individual[i].T])
+            results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
+            result_dict['model_'+str(i)] = results.copy()
+    
     else:
+        result_dict = {}
         results = np.vstack([n_observations, scores_train.T, max_value.T])
         results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
-    
-    return sample_x, results
+        result_dict['aggregated'] = results.copy()
+        
+        for i in range(n_models):
+            results = np.vstack([n_observations, scores_train_individual[i].T, max_value_individual[i].T])
+            results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
+            result_dict['model_'+str(i)] = results.copy()
+
+    return sample_x, result_dict
