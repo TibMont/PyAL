@@ -328,8 +328,8 @@ def create_animation_continuous(
         ax1.plot(grid_simple.reshape(n_data),y_true, 'k-', label='True')
         ax1.plot(sample_x, observation_y,'ko', markerfacecolor='white', label='Observation')
         ax1.set_ylabel('$f(x)$')
-        ax1.legend(loc='lower center')
-        ax1.fill_between(grid.reshape(n_data),mean-std*3,mean+std*3, alpha=0.2)
+        ax1.legend(loc='upper right', fontsize=10)
+        #ax1.fill_between(grid.reshape(n_data),mean-std*3,mean+std*3, alpha=0.2)
 
         #Plot acquisition function
         ax2.plot(grid.reshape(n_data), acquisition)
