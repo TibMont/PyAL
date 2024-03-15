@@ -1,7 +1,7 @@
 PyAL - Python based Active Learning with Acquisition Functions
 ==============================================================
 
-PyAL is a framework for using Active Learning in Python. It is specifically designed to use so-called acquisition functions for Active Learning, as discussed e.g. in [1]_ and [^2]_.
+PyAL is a framework for using Active Learning in Python. It is specifically designed to use so-called acquisition functions for Active Learning, as discussed e.g. in [1]_ and [2]_.
 The goal of this project is to enable sequential and batch-wise learning for pool and population data.
 It can be used for example together with packages like LECA (Liquid Electrolyte Composition Analysis package) to combine Machine Learning based modeling directly with Active Learning.
 
