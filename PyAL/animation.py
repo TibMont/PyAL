@@ -3,6 +3,8 @@
 # Version: 0.1
 # License: MIT license
 
+"""Animation of active learning for simple 1D functions. Can be used for demonstration purposes."""
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
