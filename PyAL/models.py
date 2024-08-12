@@ -1,3 +1,8 @@
+# Author: Mirko Fischer
+# Date: 12.08.2024
+# Version: 0.1
+# License: MIT license
+
 import numpy as np
 import pandas as pd
 
@@ -336,7 +341,7 @@ class ArrheniusModel():
 
 class PoolModel():
     def __init__(self, features, objective):
-        self.n_features=len(features)
+        self.n_features=np.array(features).shape[1]
         self.features=np.array(features)
         self.objective = np.array(objective).flatten()
 

@@ -1,3 +1,8 @@
+# Author: Mirko Fischer
+# Date: 12.08.2024
+# Version: 0.1
+# License: MIT license
+
 import numpy as np
 import pandas as pd
 from scipy.stats import norm

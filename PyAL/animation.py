@@ -1,3 +1,8 @@
+# Author: Mirko Fischer
+# Date: 12.08.2024
+# Version: 0.1
+# License: MIT license
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -44,7 +49,8 @@ def create_animation(
     n_observations = 3,
     noise_level = 0,
     html = True,
-    random_state = 42
+    random_state = 42,
+    legend = True
 ):
     rng = np.random.RandomState(seed=random_state)
     
@@ -140,7 +146,7 @@ def create_animation(
     fig.set_tight_layout(True)
 
 
-    def plot_anim(sample_x, observation_y, grid, mean, std, acquisition, max_x, max_acquisition, title=None):
+    def plot_anim(sample_x, observation_y, grid, mean, std, acquisition, max_x, max_acquisition, title=None, legend=True):
         n_data = grid.shape[0]
 
         #Clear the plot
@@ -156,7 +162,8 @@ def create_animation(
         ax1.plot(grid_simple.reshape(n_data),y_true, 'k-', label='True')
         ax1.plot(sample_x, observation_y,'ko', markerfacecolor='white', label='Observation')
         ax1.set_ylabel('$f(x)$')
-        ax1.legend(loc='lower center')
+        if legend==True:
+            ax1.legend(loc='lower center')
         ax1.fill_between(grid.reshape(n_data),mean-std*3,mean+std*3, alpha=0.2)
 
         #Plot acquisition function
@@ -173,13 +180,13 @@ def create_animation(
         ax2.yaxis.set_major_formatter(FormatStrFormatter('%.3f'))
 
     #Create the animation function
-    def animation_function(frame, sample_x_collect, observation_y_collect, grid_simple, mean_collect, std_collect, ei_collect, x_max_collect, ei_max_collect):
+    def animation_function(frame, sample_x_collect, observation_y_collect, grid_simple, mean_collect, std_collect, ei_collect, x_max_collect, ei_max_collect, legend=True):
         plot_anim(sample_x_collect[frame], observation_y_collect[frame], grid_simple, mean_collect[frame], std_collect[frame], 
-        acquisition_collect[frame], x_max_collect[frame], acquisition_max_collect[frame], title='Iteration {}'.format(frame))
+        acquisition_collect[frame], x_max_collect[frame], acquisition_max_collect[frame], title='Iteration {}'.format(frame), legend=legend)
         
     #Create the animation
     anim_created = FuncAnimation(fig, animation_function, frames=n_iterations, interval=1000, fargs=(sample_x_collect, observation_y_collect, grid_simple, mean_collect, 
-                                std_collect, acquisition_collect, x_max_collect, acquisition_max_collect))
+                                std_collect, acquisition_collect, x_max_collect, acquisition_max_collect, legend))
     plt.close()
     if html == True:
         video = anim_created.to_jshtml()

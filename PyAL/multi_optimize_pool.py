@@ -1,3 +1,8 @@
+# Author: Mirko Fischer
+# Date: 12.08.2024
+# Version: 0.1
+# License: MIT license
+
 import numpy as np
 import pandas as pd
 
@@ -549,7 +554,7 @@ def run_batch_learning_multi(models,
             std_test = np.zeros((n_models, len(test_set)))
 
         for i in range(n_models):
-
+            regression_model = regression_models[i]
             if isinstance(regression_model, LinearRegression):
                 regression_model.fit(sample_x_poly, observation_y[i])
             else:
