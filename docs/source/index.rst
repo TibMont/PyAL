@@ -1,14 +1,14 @@
 .. include:: ../../README.rst
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 3
    :hidden:
    :caption: Introduction
 
    basic_usage
 
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 5
    :hidden:
    :caption: Package API:
    
