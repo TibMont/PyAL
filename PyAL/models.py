@@ -1,3 +1,8 @@
+# Author: Mirko Fischer
+# Date: 12.08.2024
+# Version: 0.1
+# License: MIT license
+
 import numpy as np
 import pandas as pd
 
@@ -21,7 +26,7 @@ class inv_sphere():
     $$
 
     Parameters:
-    ----------
+    -----------
     d : int
         Number of dimensions.
     random_state : int, optional
@@ -75,7 +80,7 @@ class inv_rastrigin():
     $$
 
     Parameters:
-    ----------
+    -----------
     d : int
         Number of dimensions.
     random_state : int, optional
@@ -136,7 +141,7 @@ class inv_rosenbrock():
     $$
     
     Parameters:
-    ----------
+    -----------
     d : int
         Number of dimensions.
     random_state : int, optional
@@ -197,7 +202,7 @@ class inv_alos():
     $$
 
     Parameters:
-    ----------
+    -----------
     d : int
         Number of dimensions.
     random_state : int, optional
@@ -242,6 +247,9 @@ class inv_alos():
 
 
 class PrefitModel():
+    """
+    Use a prefit sklearn model as true model. 
+    """
     def __init__(self, model, n_features, scaler=None, random_state=None):
         self.model = model
         self.scaler = scaler
@@ -259,6 +267,9 @@ class PrefitModel():
 
 
 class PolyModel():
+    """
+    Polynomial Model.
+    """
     def __init__(self, weights, features='xy', polynomial_degree=2, scaler=None, random_state=None):
         self.n_features=len(features)
         self.features=features
@@ -313,6 +324,15 @@ class PolyModel():
 
 
 class ArrheniusModel():
+    """
+    An Arrhenius type model with the form:
+    $$
+    S = S_0 - S_1 \cdot (\beta-\beta_0) - S_2 \cdot (\beta-\beta_0)^2
+    $$
+    where S_0 corresponds to the value of $S$ at the onset temperature $T_0$, $S_1$ is an activation energy and $S_2$
+    corresponds to deviations from Arrhenius behaviour. $\beta$ is the inverse temperature.
+    A model for each of $S_0$, $S_1$ and $S_2$ is needed. 
+    """
     def __init__(self, S0, S1, S2, temperature=(1000/293.15), beta_0 = (1000/333.15), random_state=None):
         self.model_S0 = S0
         self.model_S1 = S1
@@ -335,8 +355,11 @@ class ArrheniusModel():
     
 
 class PoolModel():
+    """
+    A model where data points are taken directly from a pool of already known data.
+    """
     def __init__(self, features, objective):
-        self.n_features=len(features)
+        self.n_features=np.array(features).shape[1]
         self.features=np.array(features)
         self.objective = np.array(objective).flatten()
 

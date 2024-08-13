@@ -1,3 +1,8 @@
+# Author: Mirko Fischer
+# Date: 12.08.2024
+# Version: 0.1
+# License: MIT license
+
 import numpy as np
 import pandas as pd
 
@@ -567,15 +572,15 @@ def run_continuous_batch_learning_multi(models,
         if isinstance(regression_model, LinearRegression):
             if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
                 print('Acquisition function is not implemented for Linear Regression: {}'.format(acquisition_function))
-                exit()
+                exit(1)
         elif not isinstance(regression_model, GPR):
             if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
                 print('Acquisition function is not implemented for Non-GPR models: {}'.format(acquisition_function))
-                exit()
+                exit(1)
         else:
             if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc', 'ei', 'ucb', 'poi', 'std', 'uidal', 'SGSx']:
                 print('Acquisition function not implemented: {}'.format(acquisition_function))
-                exit()
+                exit(1)
 
     #Set random number generator
     rng = np.random.RandomState(seed=random_state)
@@ -633,7 +638,7 @@ def run_continuous_batch_learning_multi(models,
             raise Exception('initial_samples must be an integer for initialization method random')
     elif initialization == 'GSx':
         if isinstance(initial_samples, int):
-            sample_x, _ = run_continuous_batch_learning_multi(models, 
+            sample_x, _, _ = run_continuous_batch_learning_multi(models, 
             aggregation_function, 
             regression_models,
             acquisition_function = 'GSx',
@@ -683,8 +688,9 @@ def run_continuous_batch_learning_multi(models,
         scores_test = np.zeros((active_learning_steps+1,3))
 
     #Fit initial model
-    mean = np.zeros((n_models, len(pool)))
-    std = np.zeros((n_models, len(pool)))
+    if calculate_test_metrics:
+        mean = np.zeros((n_models, len(pool)))
+        std = np.zeros((n_models, len(pool)))
 
     mean_train = np.zeros((n_models, len(sample_x)))
     std_train = np.zeros((n_models, len(sample_x)))
@@ -751,8 +757,9 @@ def run_continuous_batch_learning_multi(models,
 
             #For the first sample in a batch we can use the model with which we evaluated the scores
             if j != 0:
-                mean = np.zeros((n_models, len(pool)))
-                std = np.zeros((n_models, len(pool)))
+                if calculate_test_metrics:
+                    mean = np.zeros((n_models, len(pool)))
+                    std = np.zeros((n_models, len(pool)))
 
                 for i in range(n_models):
                     if isinstance(regression_model, LinearRegression):
@@ -961,7 +968,7 @@ def run_continuous_batch_learning_multi(models,
                 results = np.hstack([n_observations[0], scores_train[0].T, max_value[0].T]).reshape(1,-1)
                 results = pd.DataFrame(results, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
             
-            return sample_x, results
+            return sample_x, observation_y, results
 
         for regression_model in regression_models:
             if isinstance(regression_model, LinearRegression):
@@ -977,8 +984,9 @@ def run_continuous_batch_learning_multi(models,
         observation_y_aggregated = np.hstack([observation_y_aggregated, observation_new_aggregated])
 
         # Fit new model with updated real training set
-        mean = np.zeros((n_models, len(pool)))
-        std = np.zeros((n_models, len(pool)))
+        if calculate_test_metrics:
+            mean = np.zeros((n_models, len(pool)))
+            std = np.zeros((n_models, len(pool)))
 
         mean_train = np.zeros((n_models, len(sample_x)))
         std_train = np.zeros((n_models, len(sample_x)))
@@ -1045,4 +1053,4 @@ def run_continuous_batch_learning_multi(models,
         results = np.vstack([n_observations, scores_train.T, max_value.T])
         results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
     
-    return sample_x, results
+    return sample_x, observation_y, results

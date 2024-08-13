@@ -1,3 +1,11 @@
+# Author: Mirko Fischer
+# Date: 12.08.2024
+# Version: 0.1
+# License: MIT license
+
+"""Acquisition function implementation that can be used with scipy.minimize and pyswarms. 
+Since both algorithms search for the minimum the negative acquisition function value is returned."""
+
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
