@@ -5,11 +5,11 @@
    :hidden:
    :caption: Introduction
 
-   basic_usage
+   source/basic_usage
 
 .. toctree::
    :maxdepth: 3
    :hidden:
    :caption: Package API:
    
-   PyAL
+   source/PyAL
