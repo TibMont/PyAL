@@ -249,6 +249,33 @@ class inv_alos():
 class PrefitModel():
     """
     Use a prefit sklearn model as true model. 
+
+    Parameters:
+    -----------
+    model : sklearn-model
+        A prefitted sklearn-model which is used as a model for the true data.
+    n_features : int
+        Number of features.
+    scaler : sklearn Scaler, optional
+        Scaler that is used to preprocess data for the model. A prefitted scaler should be used. 
+        The default value is ``None``.
+    random_state : int, optional 
+        Random state for reproducibility. The default value is 1.
+
+
+    Attributes:
+    -----------
+     model : sklearn-model
+        A prefitted sklearn-model which is used as a model for the true data.
+    scaler : sklearn Scaler, optional
+        Scaler that is used to preprocess data for the model. A prefitted scaler should be used. 
+        The default value is ``None``.
+    n_features : int
+        Number of features.
+    rng : RandomNumberGenerator
+        Random Number Generator from numpy.
+
+
     """
     def __init__(self, model, n_features, scaler=None, random_state=None):
         self.model = model
@@ -257,6 +284,20 @@ class PrefitModel():
         self.n_features = n_features
 
     def evaluate(self, grid, noise=0):
+        '''
+        Evaluation function.
+
+        Parameters:
+        -----------
+        grid : nd_array
+            Input values (coordinates) for every dimension.
+        noise : float, optional
+            Additional noise to add to the model.
+        
+        Returns:
+        --------
+        The function values for each data point.
+        '''
         if self.scaler != None:
             grid = self.scaler.transform(grid)
         y = self.model.predict(grid)
@@ -326,12 +367,12 @@ class PolyModel():
 class ArrheniusModel():
     """
     An Arrhenius type model with the form:
-    $$
-    S = S_0 - S_1 \cdot (\beta-\beta_0) - S_2 \cdot (\beta-\beta_0)^2
-    $$
-    where S_0 corresponds to the value of $S$ at the onset temperature $T_0$, $S_1$ is an activation energy and $S_2$
-    corresponds to deviations from Arrhenius behaviour. $\beta$ is the inverse temperature.
-    A model for each of $S_0$, $S_1$ and $S_2$ is needed. 
+
+    .. math:: S = S_0 - S_1 (\\beta-\\beta_0) - S_2 (\\beta-\\beta_0)^2
+  
+    where :math:`S_0` corresponds to the value of :math:`S` at the onset temperature 
+    :math:`T_0`, :math:`S_1` is an activation energy and :math:`S_2` corresponds to deviations from Arrhenius behaviour. 
+    :math:`\\beta` is the inverse temperature. A model for each of the :math:`S_i` is needed. 
     """
     def __init__(self, S0, S1, S2, temperature=(1000/293.15), beta_0 = (1000/333.15), random_state=None):
         self.model_S0 = S0

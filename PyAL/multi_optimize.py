@@ -326,14 +326,14 @@ def EI_con(x, model, aggregation_function, opt, alpha=0.5, max=True, *args, **kw
 
     if max==False:
         f_min = opt
-        cdf = norm.cdf((f_min-mean)/uncertainty)
-        pdf = norm.pdf((f_min-mean)/uncertainty)
-        ei = alpha*(f_min-mean)*cdf + (1-alpha)*uncertainty*pdf
+        cdf = norm.cdf((f_min-mean-alpha)/uncertainty)
+        pdf = norm.pdf((f_min-mean-alpha)/uncertainty)
+        ei = (f_min-mean-alpha)*cdf + uncertainty*pdf
     else:
         f_max = opt
-        cdf = norm.cdf((mean-f_max)/uncertainty)
-        pdf = norm.pdf((mean-f_max)/uncertainty)
-        ei = alpha*(mean-f_max)*cdf + (1-alpha)*uncertainty*pdf
+        cdf = norm.cdf((mean-f_max-alpha)/uncertainty)
+        pdf = norm.pdf((mean-f_max-alpha)/uncertainty)
+        ei = (mean-f_max-alpha)*cdf + uncertainty*pdf
     return -ei
 
 def QBC_con(x, models, aggregation_function, poly_x, *args, **kwargs):

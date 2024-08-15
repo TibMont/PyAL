@@ -52,7 +52,8 @@ def run_continuous_batch_learning(model,
            pso_options = None,
            fictive_noise_level=0,
            poly_degree = 3,
-           calculate_test_metrics = True
+           calculate_test_metrics = True,
+           custom_acfn_input = None,
            ):
     '''
     Perform batch-mode Active Learning in continuous parameter space for a given model generating the true data and a give regression model. 
@@ -65,7 +66,9 @@ def run_continuous_batch_learning(model,
     regression_model: sklearn model, str, optional
         scikit-learn regression model.
     acquissition_function : str, optional
-        Acquisition function. The default is 'ideal'.
+        Acquisition function. Can also be a Callable. Then in custom_acfn_input it needs to be specified
+        which input the custom function takes. The Callable should only take the input in the described order.
+        The default is 'ideal'. 
     opt_method : str, optional
         The method to optimize the acquisition function. Choose from 'lbfgs' and 'PSO'. The default is 'PSO'.
     pool : nd_array, None, optional
@@ -99,6 +102,20 @@ def run_continuous_batch_learning(model,
     calculate_test_metrics : bool, optional
         Can be used for testing Active Learning algorithms for known models. Test metrics are calculated automatically. If 'False' no test metrics are 
         calculated and the AL runs in deployement mode.
+    custom_args_input : list, optional
+        List of arguments which a custom acquisition function takes. It is important that the callable takes the arguments
+        in the described order. The arguments must also be named as described here:
+
+        x0: First argument, does not need to appear in this list.
+        x: Values of the features of all evaluated samples
+        y: Objective values of all evaluated samples
+        max_y: Maximum observed value of all evaluated samples
+        regression_model: sklearn model used for the fitting
+        lim: boundary 
+        alpha: hyperparameter
+        poly_x: sklearn poly_transformer. Must be given if a linear regression model should be used with the acquisition function
+
+        The callable must return the value of the acquisition function as a float or as a numpy_array of floats.
 
     Returns
     -------
@@ -111,19 +128,21 @@ def run_continuous_batch_learning(model,
 
 
     '''
-
-    if isinstance(regression_model, LinearRegression):
-        if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
-            print('Acquisition functin is not implemented for Linear Regression: {}'.format(acquisition_function))
-            exit()
-    elif not isinstance(regression_model, GPR):
-        if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
-            print('Acquisition functin is not implemented for Non-GPR models: {}'.format(acquisition_function))
-            exit()
-    else:
-        if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc', 'ei', 'ucb', 'poi', 'std', 'uidal', 'SGSx']:
-            print('Acquisition function not implemented: {}'.format(acquisition_function))
-            exit()
+    if not callable(acquisition_function):
+        if isinstance(regression_model, LinearRegression):
+            if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
+                print('Acquisition functin is not implemented for Linear Regression: {}'.format(acquisition_function))
+                exit()
+        elif not isinstance(regression_model, GPR):
+            if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
+                print('Acquisition functin is not implemented for Non-GPR models: {}'.format(acquisition_function))
+                exit()
+        else:
+            if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc', 'ei', 'ucb', 'poi', 'std', 'uidal', 'SGSx']:
+                print('Acquisition function not implemented: {}'.format(acquisition_function))
+                exit()
+    else: 
+        print('Using a custom acquisition function. This is an experimental feature. Please be careful.')
     
     #Set random number generator
     rng = np.random.RandomState(seed=random_state)
@@ -169,7 +188,8 @@ def run_continuous_batch_learning(model,
            initialization='random',
            pso_options=pso_options,
            poly_degree = poly_degree,
-           calculate_test_metrics=False
+           calculate_test_metrics=False,
+           custom_acfn_input=custom_acfn_input
            )
     else:
         raise Exception('Initialization method not implemented')
@@ -304,6 +324,26 @@ def run_continuous_batch_learning(model,
                         models.append(copy.deepcopy(regression_model))
                     res = minimize(QBC_con, x0=x0, args=(models, poly_x),
                             bounds=lim_t)
+                elif callable(acquisition_function):
+                    custom_args = []
+                    if 'x' in custom_acfn_input:
+                        custom_args.append(estimated_sample_x)
+                    if 'y' in custom_acfn_input:
+                        custom_args.append(estimated_observation_y)
+                    if 'max_y' in custom_acfn_input:
+                        custom_args.append(np.max(estimated_observation_y))
+                    if 'regression_model' in custom_acfn_input:
+                        custom_args.append(regression_model)
+                    if 'lim' in custom_acfn_input:
+                        custom_args.append(lim)
+                    if 'alpha' in custom_acfn_input:
+                        custom_args.append(alpha)
+                    if 'poly_x' in custom_acfn_input:
+                        custom_args.append(poly_x)
+                    custom_args = tuple(custom_args)
+                    res = minimize(acquisition_function, x0=x0, args=(estimated_sample_x, regression_model, alpha),
+                            bounds=lim_t)
+
                 else:
                     raise Exception('Acquisition function not implemented')
             
@@ -373,6 +413,26 @@ def run_continuous_batch_learning(model,
                         models.append(copy.deepcopy(regression_model))
                     cost, new_x = optimizer.optimize(QBC_con, iters=n_iters, verbose=False, n_processes=n_jobs,
                                                      models=models, poly_x=poly_x)
+                elif callable(acquisition_function):
+                    custom_args = {}
+                    if 'x' in custom_acfn_input:
+                        custom_args['x']=estimated_sample_x
+                    if 'y' in custom_acfn_input:
+                        custom_args['y']=estimated_observation_y
+                    if 'max_y' in custom_acfn_input:
+                        custom_args['max_y']=np.max(estimated_observation_y)
+                    if 'regression_model' in custom_acfn_input:
+                        custom_args['regression_model'] = regression_model
+                    if 'lim' in custom_acfn_input:
+                        custom_args['lim']=lim
+                    if 'alpha' in custom_acfn_input:
+                        custom_args['alpha']=alpha
+                    if 'poly_x' in custom_acfn_input:
+                        custom_args['poly_x'] = poly_x
+                    
+                    cost, new_x = optimizer.optimize(acquisition_function, iters=n_iters, verbose=False, n_processes=n_jobs,
+                                                     **custom_args)
+                
                 else:
                     raise Exception('Acquisition function not implemented')
                 
