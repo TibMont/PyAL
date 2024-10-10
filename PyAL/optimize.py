@@ -20,6 +20,7 @@ from sklearn.preprocessing import PolynomialFeatures
 
 from PyAL.acfn_discrete import EI, POI, UCB, IDEAL, GSx, GSy, iGS, QBC, SGSx, UIDAL
 from PyAL.acfn_continuous import EI_con, POI_con, UCB_con, IDEAL_con, GSx_con, GSy_con, iGS_con, QBC_con, SGSx_con, std_con, UIDAL_con
+from PyAL.optimize_step import step_continuous, step_discrete
 
 import copy
 from pyswarms.single.global_best import GlobalBestPSO
@@ -271,179 +272,16 @@ def run_continuous_batch_learning(model,
             else:
                 poly_x = None
 
-            if acquisition_function == 'random':
-                x0_unscaled = sampler.random(1)[0]
-                x0 = scale(x0_unscaled.reshape(1,-1), *lim).reshape(dimensions)
-                new_x = x0
-
-            elif opt_method == 'scipy':
-                lim_t = np.array(lim).T
-                x0_unscaled = sampler.random(1)[0]
-                x0 = scale(x0_unscaled.reshape(1,-1), *lim).reshape(dimensions)
-                
-                #Check for the acquisition functions
-                #TODO: implement custom acquisition function
-                if acquisition_function == 'ei':
-                    res = minimize(EI_con, x0=x0, args=(regression_model, np.max(estimated_observation_y), alpha), 
-                                bounds=lim_t)
-                elif acquisition_function == 'poi':
-                    res = minimize(POI_con, x0=x0, args=(regression_model, np.max(estimated_observation_y), alpha), 
-                                bounds=lim_t)
-                elif acquisition_function == 'ucb':
-                    res = minimize(UCB_con, x0=x0, args=(regression_model, alpha), 
-                                bounds=lim_t)
-                elif acquisition_function == 'ideal':
-                    res = minimize(IDEAL_con, x0=x0, args=(estimated_sample_x, regression_model, estimated_observation_y, lim, alpha, poly_x), 
-                                bounds=lim_t)
-                elif acquisition_function == 'uidal':
-                    res = minimize(UIDAL_con, x0=x0, args=(estimated_sample_x, regression_model, alpha), 
-                                bounds=lim_t)
-                elif acquisition_function == 'std':
-                    res = minimize(std_con, x0=x0, args=(regression_model), 
-                                bounds=lim_t)
-                elif acquisition_function == 'GSx':
-                    res = minimize(GSx_con, x0=x0, args=(estimated_sample_x),
-                            bounds=lim_t)
-                elif acquisition_function == 'GSy':
-                    res = minimize(GSy_con, x0=x0, args=(estimated_observation_y, regression_model, poly_x),
-                            bounds=lim_t)
-                elif acquisition_function == 'iGS':
-                    res = minimize(iGS_con, x0=x0, args=(estimated_sample_x, estimated_observation_y, regression_model, poly_x),
-                            bounds=lim_t)
-                elif acquisition_function == 'SGSx':
-                    res = minimize(SGSx_con, x0=x0, args=(estimated_sample_x, regression_model, alpha),
-                            bounds=lim_t)
-                elif acquisition_function == 'qbc':
-                    models = []
-                    for _ in range(alpha):
-                        train_index = rng.randint(0,len(estimated_sample_x),len(estimated_sample_x))
-                        if isinstance(regression_model, LinearRegression):
-                            regression_model.fit(estimated_sample_x_poly[train_index], estimated_observation_y[train_index])
-                        else:
-                            regression_model.fit(estimated_sample_x[train_index], estimated_observation_y[train_index])
-                        models.append(copy.deepcopy(regression_model))
-                    res = minimize(QBC_con, x0=x0, args=(models, poly_x),
-                            bounds=lim_t)
-                elif callable(acquisition_function):
-                    custom_args = []
-                    if 'x' in custom_acfn_input:
-                        custom_args.append(estimated_sample_x)
-                    if 'y' in custom_acfn_input:
-                        custom_args.append(estimated_observation_y)
-                    if 'max_y' in custom_acfn_input:
-                        custom_args.append(np.max(estimated_observation_y))
-                    if 'regression_model' in custom_acfn_input:
-                        custom_args.append(regression_model)
-                    if 'lim' in custom_acfn_input:
-                        custom_args.append(lim)
-                    if 'alpha' in custom_acfn_input:
-                        custom_args.append(alpha)
-                    if 'poly_x' in custom_acfn_input:
-                        custom_args.append(poly_x)
-                    custom_args = tuple(custom_args)
-                    res = minimize(acquisition_function, x0=x0, args=(estimated_sample_x, regression_model, alpha),
-                            bounds=lim_t)
-
-                else:
-                    raise Exception('Acquisition function not implemented')
-            
-                new_x = res.x
-
-            #Simple Particle Swarm Optimization
-            #TODO: enable to customly choose hyperparameters
-            elif opt_method == 'PSO':
-                if not isinstance(pso_options, dict):
-                    pso_options = {'c1': 0.5, 'c2': 0.3, 'w': 0.9, 'p':dimensions*10, 'i':200}
-                else:
-                    dict_keys = pso_options.keys()
-                    if 'c1' not in dict_keys  or 'c2' not in dict_keys or 'w' not in dict_keys or 'p' not in dict_keys or 'i' not in dict_keys:
-                        raise Exception('c1, c2, w, p and i keys must be in pso_options.')
-                n_particles = int(pso_options['p'])
-                n_iters = int(pso_options['i'])
-
-                lb = lim[0]
-                ub = lim[1]
-                bounds = [lb,ub]
-                optimizer = GlobalBestPSO(n_particles=n_particles, dimensions=dimensions, options=pso_options, 
-                                    bounds=bounds)
-                if acquisition_function == 'ei':
-                    cost, new_x = optimizer.optimize(EI_con, iters=n_iters, verbose=False, n_processes=n_jobs, 
-                                                     model=regression_model, 
-                                                     opt=np.max(estimated_observation_y), alpha=alpha)
-                elif acquisition_function == 'poi':
-                    cost, new_x = optimizer.optimize(POI_con, iters=n_iters, verbose=False, n_processes=n_jobs,
-                                                     model=regression_model, 
-                                                     opt=np.max(estimated_observation_y), alpha=alpha)
-                elif acquisition_function == 'ucb':
-                    cost, new_x = optimizer.optimize(UCB_con, iters=n_iters, verbose=False, n_processes=n_jobs,
-                                                     model=regression_model, alpha=alpha)
-                elif acquisition_function == 'ideal':
-                    cost, new_x = optimizer.optimize(IDEAL_con, iters=n_iters, verbose=False, n_processes=n_jobs,
-                                                     x_samples=estimated_sample_x,
-                                                    model=regression_model, y_true=estimated_observation_y, lim=lim, alpha=alpha, poly_x=poly_x)
-                elif acquisition_function == 'uidal':
-                    cost, new_x = optimizer.optimize(UIDAL_con, iters=n_iters, verbose=False, n_processes=n_jobs,
-                                                     x_samples=estimated_sample_x,
-                                                    model=regression_model, alpha=alpha)
-                elif acquisition_function == 'std':
-                    cost, new_x = optimizer.optimize(std_con, iters=n_iters, verbose=False, n_processes=n_jobs,
-                                                    model=regression_model)
-                elif acquisition_function == 'GSx':
-                    cost, new_x = optimizer.optimize(GSx_con, iters=n_iters, verbose=False, n_processes=n_jobs,
-                                                     x_sample=estimated_sample_x)
-                elif acquisition_function == 'GSy':
-                    cost, new_x = optimizer.optimize(GSy_con, iters=n_iters, verbose=False, n_processes=n_jobs,
-                                                     y_sample=estimated_observation_y,
-                                                     model = regression_model, poly_x=poly_x)
-                elif acquisition_function == 'iGS':
-                    cost, new_x = optimizer.optimize(iGS_con, iters=n_iters, verbose=False, n_processes=n_jobs,
-                                                     x_sample=estimated_sample_x,
-                                                     y_sample=estimated_observation_y, model=regression_model, poly_x=poly_x)
-                elif acquisition_function == 'SGSx':
-                    cost, new_x = optimizer.optimize(SGSx_con, iters=n_iters, verbose=False, n_processes=n_jobs,
-                                                     x_sample=estimated_sample_x, model=regression_model, alpha=alpha)
-                elif acquisition_function == 'qbc':
-                    models = []
-                    for _ in range(alpha):
-                        train_index = rng.randint(0,len(estimated_sample_x),len(estimated_sample_x))
-                        if isinstance(regression_model, LinearRegression):
-                            regression_model.fit(estimated_sample_x_poly[train_index], estimated_observation_y[train_index])
-                        else:
-                            regression_model.fit(estimated_sample_x_poly[train_index], estimated_observation_y[train_index])
-                        models.append(copy.deepcopy(regression_model))
-                    cost, new_x = optimizer.optimize(QBC_con, iters=n_iters, verbose=False, n_processes=n_jobs,
-                                                     models=models, poly_x=poly_x)
-                elif callable(acquisition_function):
-                    custom_args = {}
-                    if 'x' in custom_acfn_input:
-                        custom_args['x']=estimated_sample_x
-                    if 'y' in custom_acfn_input:
-                        custom_args['y']=estimated_observation_y
-                    if 'max_y' in custom_acfn_input:
-                        custom_args['max_y']=np.max(estimated_observation_y)
-                    if 'regression_model' in custom_acfn_input:
-                        custom_args['regression_model'] = regression_model
-                    if 'lim' in custom_acfn_input:
-                        custom_args['lim']=lim
-                    if 'alpha' in custom_acfn_input:
-                        custom_args['alpha']=alpha
-                    if 'poly_x' in custom_acfn_input:
-                        custom_args['poly_x'] = poly_x
-                    
-                    cost, new_x = optimizer.optimize(acquisition_function, iters=n_iters, verbose=False, n_processes=n_jobs,
-                                                     **custom_args)
-                
-                else:
-                    raise Exception('Acquisition function not implemented')
-                
-            else:
-                raise Exception('Optimization method not implemented')
+            new_x, _ = step_continuous(acquisition_function, 
+                            opt_method, regression_model, 
+                            estimated_observation_y, estimated_sample_x,estimated_sample_x_poly,
+                            custom_acfn_input, alpha, sampler, lim, dimensions, poly_x,n_jobs, pso_options, rng)
 
             #Assume estimated predictions
             if isinstance(regression_model, GPR):
                 mean_new, std_new = regression_model.predict(new_x.reshape(1,-1), return_std=True)
             elif isinstance(regression_model, LinearRegression):
-                new_x_poly = poly_transformer.fit_transform(new_x.reshape(1,-1))
+                new_x_poly = poly_transformer.fit_transform(new_x.reshape(-1,1), axis=0)
                 mean_new = regression_model.predict(new_x_poly)
                 std_new = fictive_noise_level
             else:
@@ -744,36 +582,8 @@ def run_batch_learning(model,
             #plt.show()
 
             #Choose an acquisition function
-            if acquisition_function == 'poi':
-                poi = POI(mean, std, opt=np.max(estimated_observation_y), max=True, alpha=alpha)
-                index = np.where(poi[mask]==np.max(poi[mask]))[0]
-                index = mask_indices[index]
-            elif acquisition_function == 'ei':
-                ei = EI(mean, std, opt=np.max(estimated_observation_y), max=True, alpha=alpha)
-                index = np.where(ei[mask]==np.max(ei[mask]))[0]
-                index = mask_indices[index]
-            elif acquisition_function == 'ucb':
-                ucb = UCB(mean, std, alpha=alpha)
-                ucb = (ucb+1000)*mask_z
-                index = np.where(ucb==np.max(ucb))[0]
-            elif acquisition_function == 'random':
-                imp = rng.rand(n_data)
-                imp = imp*mask_z
-                index = np.where(imp==np.max(imp))[0]
-            elif acquisition_function == 'std':
-                imp = std*mask_z
-                index = np.where(imp==np.max(imp))[0]
-            elif acquisition_function =='ideal':
-                y_true = np.zeros(len(pool))
-                y_true[data_indices] = estimated_observation_y
-                imp = IDEAL(data_indices, pool, mean, y_true, alpha)
-                imp = imp*mask_z
-                index = np.where(imp==np.max(imp))[0]
-            elif acquisition_function =='uidal':
-                imp = UIDAL(data_indices, pool, std, alpha)
-                imp = imp*mask_z
-                index = np.where(imp==np.max(imp))[0]
-            elif acquisition_function == 'qbc':
+
+            if acquisition_function == 'qbc':
                 models = []
                 for _ in range(alpha):
                     train_index = rng.randint(0,len(estimated_sample_x),len(estimated_sample_x))
@@ -782,24 +592,18 @@ def run_batch_learning(model,
                     else:
                         regression_model.fit(estimated_sample_x[train_index], estimated_observation_y[train_index])
                     models.append(copy.deepcopy(regression_model))
-                imp = QBC(pool, models)
-                imp = imp*mask_z
-                index = np.where(imp==np.max(imp))[0]
-            elif acquisition_function == 'GSx':
-                gsx = GSx(data_indices, pool)
-                index = np.where(gsx==np.max(gsx))[0]
-            elif acquisition_function == 'GSy':
-                gsy = GSy(mean, estimated_observation_y)
-                index = np.where(gsy==np.max(gsy))[0]
-            elif acquisition_function == 'iGS':
-                igs = iGS(data_indices, pool, mean, estimated_observation_y)
-                index = np.where(igs==np.max(igs))[0]
-            elif acquisition_function == 'SGSx':
-                sgsx = SGSx(data_indices, pool, std, alpha)
-                index = np.where(sgsx==np.max(sgsx))[0]
+                acquisition = QBC(pool, models)
 
-            else:
-                raise Exception('Acquisition function not implemented')
+            acquisition = step_discrete(
+                    acquisition_function, 
+                    estimated_observation_y, 
+                    alpha, mean, std,
+                    n_data, data_indices, pool,
+                    rng)
+            
+            #Find maximum of acquisition function for non yet evaluated data points
+            acquisition_masked = acquisition*mask_z
+            index = np.where(acquisition_masked[mask]==np.max(acquisition_masked[mask]))[0]
             
             if len(index) > 1:
                 ind = rng.randint(0,len(index),1)

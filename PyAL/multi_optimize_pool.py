@@ -24,6 +24,8 @@ from sklearn.pipeline import Pipeline
 import copy
 from pyswarms.single.global_best import GlobalBestPSO
 
+from PyAL.optimize_step import step_discrete
+
 import sys
 import os
 import warnings
@@ -37,20 +39,6 @@ if not sys.warnoptions:
     warnings.simplefilter("ignore")
     os.environ["PYTHONWARNINGS"] = ('ignore::ConvergenceWarning')
 
-def conductivity_aggregation_fn(x, delta_beta, uncert=False):
-
-    if len(x.shape) == 1:
-        x = x.reshape(1,-1).T
-
-    #print(x.shape)
-    #print(x)
-    if uncert == False:
-        conductivity = x[0,:] - delta_beta*x[1,:] - x[2,:]*delta_beta**2
-        return conductivity
-
-    else:
-        uncertainty = x[0,:] + delta_beta*x[1,:] + x[2,:]*delta_beta**2
-        return uncertainty
     
 def QBC_multi(x, models, aggregation_function, poly_x, **kwargs):
     if len(x.shape) == 1:
@@ -230,8 +218,6 @@ def run_batch_learning_multi(models,
             extra_test_set = False
             y_true_aggregated = aggregation_function(y_true, **kwargs)
     
-    
-
     #Randomly pick data points in pool for initial observations
     if initialization == 'random':
         rand_num = rng.randint(0,n_data, size=initial_samples)
@@ -406,37 +392,7 @@ def run_batch_learning_multi(models,
             #plt.plot(pool, mean)
             #plt.show()
 
-            #Choose an acquisition function
-            if acquisition_function == 'poi':
-                poi = POI(mean_train_aggregated, std_train_aggregated, opt=np.max(estimated_observation_y_aggregated), max=True, alpha=alpha)
-                index = np.where(poi[mask]==np.max(poi[mask]))[0]
-                index = mask_indices[index]
-            elif acquisition_function == 'ei':
-                ei = EI(mean_train_aggregated, std_train_aggregated, opt=np.max(estimated_observation_y_aggregated), max=True, alpha=alpha)
-                index = np.where(ei[mask]==np.max(ei[mask]))[0]
-                index = mask_indices[index]
-            elif acquisition_function == 'ucb':
-                ucb = UCB(mean_train_aggregated, std_train_aggregated, alpha=alpha)
-                ucb = (ucb+1000)*mask_z
-                index = np.where(ucb==np.max(ucb))[0]
-            elif acquisition_function == 'random':
-                imp = rng.rand(n_data)
-                imp = imp*mask_z
-                index = np.where(imp==np.max(imp))[0]
-            elif acquisition_function == 'std':
-                imp = std_train_aggregated*mask_z
-                index = np.where(imp==np.max(imp))[0]
-            elif acquisition_function =='ideal':
-                y_true_aggregated_id = np.zeros(len(pool))
-                y_true_aggregated_id[data_indices] = estimated_observation_y_aggregated
-                imp = IDEAL(data_indices, pool, mean_train_aggregated, y_true_aggregated_id, alpha)
-                imp = imp*mask_z
-                index = np.where(imp==np.max(imp))[0]
-            elif acquisition_function =='uidal':
-                imp = UIDAL(data_indices, pool, std_train_aggregated, alpha)
-                imp = imp*mask_z
-                index = np.where(imp==np.max(imp))[0]
-            elif acquisition_function == 'qbc':
+            if acquisition_function == 'qbc':
                 S_models = []
                 for i in range(n_models):
                     alpha_models = []
@@ -453,21 +409,17 @@ def run_batch_learning_multi(models,
                 imp = QBC_multi(pool, S_models, aggregation_function, poly_x, **kwargs)
                 imp = imp*mask_z
                 index = np.where(imp==np.max(imp))[0]
-            elif acquisition_function == 'GSx':
-                gsx = GSx(data_indices, pool)
-                index = np.where(gsx==np.max(gsx))[0]
-            elif acquisition_function == 'GSy':
-                gsy = GSy(mean, estimated_observation_y_aggregated)
-                index = np.where(gsy==np.max(gsy))[0]
-            elif acquisition_function == 'iGS':
-                igs = iGS(data_indices, pool, mean_train_aggregated, estimated_observation_y_aggregated)
-                index = np.where(igs==np.max(igs))[0]
-            elif acquisition_function == 'SGSx':
-                sgsx = SGSx(data_indices, pool, std_train_aggregated, alpha)
-                index = np.where(sgsx==np.max(sgsx))[0]
-
             else:
-                raise Exception('Acquisition function not implemented')
+                acquisition = step_discrete(
+                    acquisition_function, 
+                    estimated_observation_y, 
+                    alpha, mean_train_aggregated, std_train_aggregated,
+                    n_data, data_indices, pool,
+                    rng,
+                )
+
+            acquisition_masked = acquisition*mask_z
+            index = np.where(acquisition_masked[mask]==np.max(acquisition_masked[mask]))[0]
             
             if len(index) > 1:
                 ind = rng.randint(0,len(index),1)
