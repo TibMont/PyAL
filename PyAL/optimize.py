@@ -146,7 +146,8 @@ def run_continuous_batch_learning(model,
         print('Using a custom acquisition function. This is an experimental feature. Please be careful.')
     
     #Set random number generator
-    rng = np.random.RandomState(seed=random_state)
+    if isinstance(random_state, int) or random_state==None:
+        rng = np.random.RandomState(seed=random_state)
 
     poly_transformer = PolynomialFeatures(degree=poly_degree)
 
@@ -168,7 +169,7 @@ def run_continuous_batch_learning(model,
         y_true = model.evaluate(pool, noise = noise)
 
     #Generate initial data
-    sampler = LHS(d=dimensions)
+    sampler = LHS(d=dimensions, seed=random_state)
     if initialization == 'random':
         sample_x_unscaled = sampler.random(initial_samples)
         sample_x = scale(sample_x_unscaled, *lim)
@@ -185,7 +186,7 @@ def run_continuous_batch_learning(model,
            lim=lim,
            alpha=alpha,
            n_jobs=n_jobs,
-           random_state=random_state,
+           random_state=rng,
            initialization='random',
            pso_options=pso_options,
            poly_degree = poly_degree,
@@ -249,6 +250,8 @@ def run_continuous_batch_learning(model,
         estimated_sample_x = sample_x.copy()
         if isinstance(regression_model, LinearRegression):
             estimated_sample_x_poly = sample_x_poly.copy()
+        else:
+            estimated_sample_x_poly = None
         
         for j in range(batch_size):
             
@@ -362,7 +365,8 @@ def run_batch_learning(model,
            test_set = None,
            poly_degree = 3,
            fictive_noise_level = 0,
-           calculate_test_metrics = True
+           calculate_test_metrics = True,
+           custom_acfn_input = None
            ):
     '''
     Perform batch-mode Active Learning for a discrete parameter space. The algorithm picks automatically initial data points from a given
@@ -478,7 +482,8 @@ def run_batch_learning(model,
            random_state=random_state,
            return_samples=return_samples,
            initialization='random',
-           poly_degree=poly_degree
+           poly_degree=poly_degree,
+           custom_acfn_input=custom_acfn_input
            )
 
         idx = []
@@ -599,6 +604,7 @@ def run_batch_learning(model,
                     estimated_observation_y, 
                     alpha, mean, std,
                     n_data, data_indices, pool,
+                    custom_acfn_input,
                     rng)
             
             #Find maximum of acquisition function for non yet evaluated data points

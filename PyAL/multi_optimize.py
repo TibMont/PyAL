@@ -21,6 +21,7 @@ from sklearn.pipeline import Pipeline
 
 from PyAL.optimize_step import step_continous_multi
 
+
 import copy
 from pyswarms.single.global_best import GlobalBestPSO
 
@@ -58,6 +59,7 @@ def run_continuous_batch_learning_multi(models,
            pso_options = None,
            fictive_noise_level=0,
            poly_degree = 3,
+           custom_acfn_input = {},
            calculate_test_metrics = True,
            verbose=True,
            single_update = False,
@@ -165,7 +167,8 @@ def run_continuous_batch_learning_multi(models,
                 exit(1)
 
     #Set random number generator
-    rng = np.random.RandomState(seed=random_state)
+    if isinstance(random_state, int) or random_state==None:
+        rng = np.random.RandomState(seed=random_state)
 
     #Set polynomial feature transformer
     poly_transformer = PolynomialFeatures(degree=poly_degree)
@@ -209,7 +212,7 @@ def run_continuous_batch_learning_multi(models,
 
         y_true_aggregated = aggregation_function(y_true, **kwargs)
 
-    sampler = LHS(d=dimensions)
+    sampler = LHS(d=dimensions, seed=random_state)
     #Generate initial data
     logger.info('Initialization method: {}'.format(initialization))
     if initialization == 'random':
@@ -233,10 +236,11 @@ def run_continuous_batch_learning_multi(models,
             lim=lim,
             alpha=alpha,
             n_jobs=n_jobs,
-            random_state=random_state,
+            random_state=rng,
             initialization='random',
             pso_options=pso_options,
             poly_degree = poly_degree,
+            custom_acfn_input = custom_acfn_input,
             calculate_test_metrics=False,
             verbose=False,
             **kwargs
@@ -306,12 +310,12 @@ def run_continuous_batch_learning_multi(models,
         mean_aggregated = aggregation_function(mean, **kwargs)
         scores_test[0,0] = mean_squared_error(y_true_aggregated, mean_aggregated)
         scores_test[0,1] = mean_absolute_error(y_true_aggregated, mean_aggregated)
-        scores_test[0,2] = max_error(y_true_aggregated, mean_aggregated)
+        scores_test[0,2] = max_error(y_true_aggregated.flatten(), mean_aggregated.flatten())
 
     mean_train_aggregated = aggregation_function(mean_train, **kwargs)
     scores_train[0,0] = mean_squared_error(observation_y_aggregated, mean_train_aggregated)
     scores_train[0,1] = mean_absolute_error(observation_y_aggregated, mean_train_aggregated)
-    scores_train[0,2] = max_error(observation_y_aggregated, mean_train_aggregated)
+    scores_train[0,2] = max_error(observation_y_aggregated.flatten(), mean_train_aggregated.flatten())
     max_value[0,0] = np.max(observation_y_aggregated)
 
 
@@ -334,6 +338,8 @@ def run_continuous_batch_learning_multi(models,
         for regression_model in regression_models:
             if isinstance(regression_model, LinearRegression):
                 estimated_sample_x_poly = sample_x_poly.copy()
+            else:
+                estimated_sample_x_poly = None
         
         for j in range(batch_size):
 
@@ -369,7 +375,7 @@ def run_continuous_batch_learning_multi(models,
                     estimated_observation_y_aggregated, 
                     estimated_sample_x,
                     estimated_sample_x_poly,
-                    None,
+                    custom_acfn_input,
                     alpha, 
                     sampler, 
                     lim,
@@ -490,7 +496,7 @@ def run_continuous_batch_learning_multi(models,
             mean_aggregated = aggregation_function(mean, **kwargs)
             scores_test[a+1,0] = mean_squared_error(y_true_aggregated, mean_aggregated)
             scores_test[a+1,1] = mean_absolute_error(y_true_aggregated, mean_aggregated)
-            scores_test[a+1,2] = max_error(y_true_aggregated, mean_aggregated)
+            scores_test[a+1,2] = max_error(y_true_aggregated.flatten(), mean_aggregated.flatten())
 
         mean_train_aggregated = aggregation_function(mean_train, **kwargs)
         #print('New iteration')
@@ -499,7 +505,7 @@ def run_continuous_batch_learning_multi(models,
         #print(mean_train_aggregated.shape)
         scores_train[a+1,0] = mean_squared_error(observation_y_aggregated, mean_train_aggregated)
         scores_train[a+1,1] = mean_absolute_error(observation_y_aggregated, mean_train_aggregated)
-        scores_train[a+1,2] = max_error(observation_y_aggregated, mean_train_aggregated)
+        scores_train[a+1,2] = max_error(observation_y_aggregated.flatten(), mean_train_aggregated.flatten())
         max_value[a+1,0] = np.max(observation_y_aggregated)
     
     logger.info('Finished Active Learning')

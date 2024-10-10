@@ -13,6 +13,7 @@ from sklearn.gaussian_process import GaussianProcessRegressor as GPR
 from sklearn.linear_model import LinearRegression
 
 from PyAL.acfn_continuous import EI_con, POI_con, UCB_con, IDEAL_con, GSx_con, GSy_con, iGS_con, QBC_con, SGSx_con, std_con, UIDAL_con
+from PyAL.acfn_continuous_multi import EI_multi, POI_multi, UCB_multi, IDEAL_multi, GSx_multi, GSy_multi, iGS_multi, QBC_multi, SGSx_multi, std_multi, UIDAL_multi
 from PyAL.acfn_discrete import EI, POI, UCB, IDEAL, GSx, GSy, iGS, QBC, SGSx, UIDAL
 
 import copy
@@ -195,8 +196,11 @@ def step_continuous(acquisition_function,
         lb = lim[0]
         ub = lim[1]
         bounds = [lb,ub]
+        init_pos_unscaled = sampler.random(n_particles)
+        init_pos = scale(init_pos_unscaled, *lim)
+        np.random.seed(rng.randint(0,1000000))
         optimizer = GlobalBestPSO(n_particles=n_particles, dimensions=dimensions, options=pso_options, 
-                            bounds=bounds)
+                            bounds=bounds, init_pos=init_pos)
         if acquisition_function == 'ei':
             cost, new_x = optimizer.optimize(EI_con, iters=n_iters, verbose=False, n_processes=n_jobs, 
                                                 model=regression_model, 
@@ -309,35 +313,35 @@ def step_continous_multi(
         #Check for the acquisition functions
         #TODO: implement custom acquisition function
         if acquisition_function == 'ei':
-            res = minimize(EI_con, x0=x0, args=(regression_models, aggregation_function, np.max(estimated_observation_y_aggregated), alpha, True, *optargs), 
+            res = minimize(EI_multi, x0=x0, args=(regression_models, aggregation_function, np.max(estimated_observation_y_aggregated), alpha, True, *optargs), 
                         bounds=lim_t)
         elif acquisition_function == 'poi':
-            res = minimize(POI_con, x0=x0, args=(regression_models, aggregation_function, np.max(estimated_observation_y_aggregated), alpha, True, *optargs), 
+            res = minimize(POI_multi, x0=x0, args=(regression_models, aggregation_function, np.max(estimated_observation_y_aggregated), alpha, True, *optargs), 
                         bounds=lim_t)
         elif acquisition_function == 'ucb':
-            res = minimize(UCB_con, x0=x0, args=(regression_models, aggregation_function, alpha, *optargs), 
+            res = minimize(UCB_multi, x0=x0, args=(regression_models, aggregation_function, alpha, *optargs), 
                         bounds=lim_t)
         elif acquisition_function == 'ideal':
-            res = minimize(IDEAL_con, x0=x0, args=(estimated_sample_x, regression_models, estimated_observation_y_aggregated, lim, aggregation_function, alpha, poly_x, *optargs), 
+            res = minimize(IDEAL_multi, x0=x0, args=(estimated_sample_x, regression_models, estimated_observation_y_aggregated, lim, aggregation_function, alpha, poly_x, *optargs), 
                         bounds=lim_t)
         elif acquisition_function == 'uidal':
-            res = minimize(UIDAL_con, x0=x0, args=(estimated_sample_x, regression_models, aggregation_function, alpha, *optargs), 
+            res = minimize(UIDAL_multi, x0=x0, args=(estimated_sample_x, regression_models, aggregation_function, alpha, *optargs), 
                         bounds=lim_t)
         elif acquisition_function == 'std':
-            res = minimize(std_con, x0=x0, args=(regression_models, aggregation_function, *optargs), 
+            res = minimize(std_multi, x0=x0, args=(regression_models, aggregation_function, *optargs), 
                         bounds=lim_t)
         
         elif acquisition_function == 'GSx':
-            res = minimize(GSx_con, x0=x0, args=(estimated_sample_x),
+            res = minimize(GSx_multi, x0=x0, args=(estimated_sample_x),
                     bounds=lim_t)
         elif acquisition_function == 'GSy':
-            res = minimize(GSy_con, x0=x0, args=(estimated_observation_y_aggregated, regression_models, aggregation_function, poly_x, *optargs),
+            res = minimize(GSy_multi, x0=x0, args=(estimated_observation_y_aggregated, regression_models, aggregation_function, poly_x, *optargs),
                     bounds=lim_t)
         elif acquisition_function == 'iGS':
-            res = minimize(iGS_con, x0=x0, args=(estimated_sample_x, estimated_observation_y_aggregated, regression_models, aggregation_function, poly_x, *optargs),
+            res = minimize(iGS_multi, x0=x0, args=(estimated_sample_x, estimated_observation_y_aggregated, regression_models, aggregation_function, poly_x, *optargs),
                     bounds=lim_t)
         elif acquisition_function == 'SGSx':
-            res = minimize(SGSx_con, x0=x0, args=(estimated_sample_x, regression_models, aggregation_function, alpha, *optargs),
+            res = minimize(SGSx_multi, x0=x0, args=(estimated_sample_x, regression_models, aggregation_function, alpha, *optargs),
                     bounds=lim_t)    
 
         elif acquisition_function == 'qbc':
@@ -352,12 +356,13 @@ def step_continous_multi(
                         regression_models[i].fit(estimated_sample_x[train_index], estimated_observation_y[i][train_index])
                     alpha_models.append(copy.deepcopy(regression_models[i]))
                 S_models.append(alpha_models)
-            res = minimize(QBC_con, x0=x0, args=(S_models, aggregation_function, poly_x, *optargs),
+            res = minimize(QBC_multi, x0=x0, args=(S_models, aggregation_function, poly_x, *optargs),
                     bounds=lim_t)
         else:
             raise Exception('Acquisition function not implemented')
     
         new_x = res.x
+        cost = res.fun
 
     #Simple Particle Swarm Optimization
     #TODO: enable to customly choose hyperparameters
@@ -374,48 +379,51 @@ def step_continous_multi(
         lb = lim[0]
         ub = lim[1]
         bounds = [lb,ub]
-        optimizer = GlobalBestPSO(n_particles=30, dimensions=dimensions, options=pso_options, 
-                            bounds=bounds)
+        init_pos_unscaled = sampler.random(n_particles)
+        init_pos = scale(init_pos_unscaled, *lim)
+        np.random.seed(rng.randint(0,1000000))
+        optimizer = GlobalBestPSO(n_particles=n_particles, dimensions=dimensions, options=pso_options, 
+                            bounds=bounds, init_pos = init_pos)
         if acquisition_function == 'ei':
-            cost, new_x = optimizer.optimize(EI_con, iters=200, verbose=False, n_processes=n_jobs, 
+            cost, new_x = optimizer.optimize(EI_multi, iters=n_iters, verbose=False, n_processes=n_jobs, 
                                                 model=regression_models, aggregation_function=aggregation_function,
                                                 opt=np.max(estimated_observation_y_aggregated), alpha=alpha, **kwargs)
         elif acquisition_function == 'poi':
-            cost, new_x = optimizer.optimize(POI_con, iters=200, verbose=False, n_processes=n_jobs,
+            cost, new_x = optimizer.optimize(POI_multi, iters=n_iters, verbose=False, n_processes=n_jobs,
                                                 model=regression_models, aggregation_function=aggregation_function,
                                                 opt=np.max(estimated_observation_y_aggregated), alpha=alpha, **kwargs)
         elif acquisition_function == 'ucb':
-            cost, new_x = optimizer.optimize(UCB_con, iters=200, verbose=False, n_processes=n_jobs,
+            cost, new_x = optimizer.optimize(UCB_multi, iters=n_iters, verbose=False, n_processes=n_jobs,
                                                 model=regression_models, aggregation_function=aggregation_function, 
                                                 alpha=alpha, **kwargs)
         elif acquisition_function == 'ideal':
-            cost, new_x = optimizer.optimize(IDEAL_con, iters=200, verbose=False, n_processes=n_jobs,
+            cost, new_x = optimizer.optimize(IDEAL_multi, iters=n_iters, verbose=False, n_processes=n_jobs,
                                                 x_samples=estimated_sample_x,
                                             model=regression_models, y_true=estimated_observation_y_aggregated, lim=lim, aggregation_function=aggregation_function,
                                             alpha=alpha, poly_x=poly_x, **kwargs)
             
         elif acquisition_function == 'uidal':
-            cost, new_x = optimizer.optimize(UIDAL_con, iters=n_iters, verbose=False, n_processes=n_jobs,
+            cost, new_x = optimizer.optimize(UIDAL_multi, iters=n_iters, verbose=False, n_processes=n_jobs,
                                                 x_samples=estimated_sample_x,
                                             model=regression_models, aggregation_function=aggregation_function, alpha=alpha, **kwargs)
         elif acquisition_function == 'std':
-            cost, new_x = optimizer.optimize(std_con, iters=n_iters, verbose=False, n_processes=n_jobs,
+            cost, new_x = optimizer.optimize(std_multi, iters=n_iters, verbose=False, n_processes=n_jobs,
                                             model=regression_models, aggregation_function=aggregation_function, **kwargs)
             
         elif acquisition_function == 'GSx':
-            cost, new_x = optimizer.optimize(GSx_con, iters=200, verbose=False, n_processes=n_jobs,
+            cost, new_x = optimizer.optimize(GSx_multi, iters=n_iters, verbose=False, n_processes=n_jobs,
                                                 x_sample=estimated_sample_x)
         elif acquisition_function == 'GSy':
-            cost, new_x = optimizer.optimize(GSy_con, iters=200, verbose=False, n_processes=n_jobs,
+            cost, new_x = optimizer.optimize(GSy_multi, iters=n_iters, verbose=False, n_processes=n_jobs,
                                                 y_sample=estimated_observation_y_aggregated,
                                                 model = regression_models, aggregation_function=aggregation_function, poly_x = poly_x, **kwargs)
         elif acquisition_function == 'iGS':
-            cost, new_x = optimizer.optimize(iGS_con, iters=200, verbose=False, n_processes=n_jobs,
+            cost, new_x = optimizer.optimize(iGS_multi, iters=n_iters, verbose=False, n_processes=n_jobs,
                                                 x_sample=estimated_sample_x,
                                                 y_sample=estimated_observation_y_aggregated, model=regression_models, 
                                                 aggregation_function=aggregation_function, poly_x = poly_x, **kwargs)
         elif acquisition_function == 'SGSx':
-            cost, new_x = optimizer.optimize(SGSx_con, iters=n_iters, verbose=False, n_processes=n_jobs,
+            cost, new_x = optimizer.optimize(SGSx_multi, iters=n_iters, verbose=False, n_processes=n_jobs,
                                                 x_sample=estimated_sample_x, model=regression_models, aggregation_function=aggregation_function, alpha=alpha, **kwargs)
         elif acquisition_function == 'qbc':
             S_models = []
@@ -429,7 +437,7 @@ def step_continous_multi(
                         regression_models[i].fit(estimated_sample_x[train_index], estimated_observation_y[i][train_index])
                     alpha_models.append(copy.deepcopy(regression_models[i]))
                 S_models.append(alpha_models)
-            cost, new_x = optimizer.optimize(QBC_con, iters=200, verbose=False, n_processes=n_jobs,
+            cost, new_x = optimizer.optimize(QBC_multi, iters=n_iters, verbose=False, n_processes=n_jobs,
                                                 models=S_models, aggregation_function=aggregation_function, poly_x = poly_x, **kwargs)
         else:
             raise Exception('Acquisition function not implemented')

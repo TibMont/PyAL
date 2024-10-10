@@ -87,6 +87,7 @@ def run_batch_learning_multi(models,
            initialization='random',
            test_set = None,
            poly_degree = 3,
+           custom_acfn_input={},
            fictive_noise_level = 0,
            calculate_test_metrics = True,
            single_update=False,
@@ -238,6 +239,10 @@ def run_batch_learning_multi(models,
            initialization='random',
            test_set=test_set,
            poly_degree=poly_degree,
+           custom_acfn_input=custom_acfn_input,
+           fictive_noise_level = fictive_noise_level,
+           calculate_test_metrics = False,
+           verbose=verbose
            **kwargs
            )
 
@@ -415,6 +420,7 @@ def run_batch_learning_multi(models,
                     estimated_observation_y, 
                     alpha, mean_train_aggregated, std_train_aggregated,
                     n_data, data_indices, pool,
+                    custom_acfn_input,
                     rng,
                 )
 
