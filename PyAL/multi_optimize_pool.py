@@ -168,7 +168,8 @@ def run_batch_learning_multi(models,
                 exit()
     
     #Set random number generator
-    rng = np.random.RandomState(seed=random_state)
+    if isinstance(random_state, int) or random_state==None:
+        rng = np.random.RandomState(seed=random_state)
 
     poly_transformer = PolynomialFeatures(degree=poly_degree)
 
@@ -234,7 +235,7 @@ def run_batch_learning_multi(models,
            active_learning_steps=initial_samples-1,
            lim=lim,
            alpha=alpha,
-           random_state=random_state,
+           random_state=rng,
            return_samples=return_samples,
            initialization='random',
            test_set=test_set,
@@ -417,7 +418,7 @@ def run_batch_learning_multi(models,
             else:
                 acquisition = step_discrete(
                     acquisition_function, 
-                    estimated_observation_y, 
+                    estimated_observation_y_aggregated, 
                     alpha, mean_train_aggregated, std_train_aggregated,
                     n_data, data_indices, pool,
                     custom_acfn_input,
@@ -425,7 +426,7 @@ def run_batch_learning_multi(models,
                 )
 
             acquisition_masked = acquisition*mask_z
-            index = np.where(acquisition_masked[mask]==np.max(acquisition_masked[mask]))[0]
+            index = np.where(acquisition_masked==np.max(acquisition_masked))[0]
             
             if len(index) > 1:
                 ind = rng.randint(0,len(index),1)

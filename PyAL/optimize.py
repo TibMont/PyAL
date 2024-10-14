@@ -436,7 +436,8 @@ def run_batch_learning(model,
             exit()
     
     #Set random number generator
-    rng = np.random.RandomState(seed=random_state)
+    if isinstance(random_state, int) or random_state==None:
+        rng = np.random.RandomState(seed=random_state)
 
     poly_transformer = PolynomialFeatures(degree=poly_degree)
 
@@ -479,7 +480,7 @@ def run_batch_learning(model,
            active_learning_steps=initial_samples-1,
            lim=lim,
            alpha=alpha,
-           random_state=random_state,
+           random_state=rng,
            return_samples=return_samples,
            initialization='random',
            poly_degree=poly_degree,
@@ -540,8 +541,10 @@ def run_batch_learning(model,
         mean, std = regression_model.predict(pool,return_std=True)
     elif isinstance(regression_model, LinearRegression):
         mean = regression_model.predict(pool_poly)
+        std = None
     else:
         mean = regression_model.predict(pool)
+        std = None
 
     #Save scores
     scores_train[0,0] = mean_squared_error(observation_y, mean[data_indices])
@@ -609,7 +612,7 @@ def run_batch_learning(model,
             
             #Find maximum of acquisition function for non yet evaluated data points
             acquisition_masked = acquisition*mask_z
-            index = np.where(acquisition_masked[mask]==np.max(acquisition_masked[mask]))[0]
+            index = np.where(acquisition_masked==np.max(acquisition_masked))[0]
             
             if len(index) > 1:
                 ind = rng.randint(0,len(index),1)
