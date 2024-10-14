@@ -89,7 +89,6 @@ def step_discrete(
         acquisition = EI(mean, std, opt=np.max(estimated_observation_y), max=True, alpha=alpha)
     elif acquisition_function == 'ucb':
         acquisition = UCB(mean, std, alpha=alpha)
-        acquisition += 1000
     elif acquisition_function == 'random':
         acquisition = rng.rand(n_data)
     elif acquisition_function == 'std':

@@ -181,9 +181,18 @@ def create_animation(
     fig.set_tight_layout(True)
 
 
-    def plot_anim(sample_x, observation_y, grid, mean, std, acquisition, max_x,
+    def plot_anim(sample_x, observation_y, grid, mean, std, acquisition_, max_x,
                   max_value, title=None, legend=True):
         n_data = grid.shape[0]
+
+        #Make sure all acquisition function values are positive for displaying them
+        min_acfn = min(acquisition_)
+        if min_acfn<0:
+            acquisition = acquisition_ - min_acfn
+            max_value_ = (max_value + min_acfn)
+        else:
+            acquisition = acquisition_
+            max_value_ = max_value
 
         #Clear the plot
         ax1.clear()
@@ -205,12 +214,12 @@ def create_animation(
 
         #Plot acquisition function
         ax2.plot(grid.reshape(n_data), acquisition)
-        ax2.plot(max_x, max_value, 'ro')
+        ax2.plot(max_x, max_value_, 'ro')
         ax2.set_ylabel('Acquisition func.')
         ax2.set_xlabel('$x$')
 
-        max_acquisition_ = max(max(acquisition),-1*max_value)*1.1
-        min_acquisition_ = -0.1*max_acquisition_
+        max_acquisition_ = max(max(acquisition),-1*max_value_)*1.1
+        min_acquisition_ = -max_acquisition_*0.1
 
         ax2.set_ylim(min_acquisition_,max_acquisition_)
 
@@ -418,8 +427,18 @@ def create_animation_continuous(
     fig, (ax1, ax2) = plt.subplots(2,1, gridspec_kw={'height_ratios':[2,1]}, sharex=True)
     fig.set_tight_layout(True)
 
-    def plot_anim(sample_x, observation_y, grid, mean, std, acquisition, max_x,
+    def plot_anim(sample_x, observation_y, grid, mean, std, acquisition_, max_x,
                   max_value, y_true, title=None):
+
+        #Make sure all acquisition function values are positive for displaying them
+        min_acfn = min(acquisition_)
+        if min_acfn<0:
+            acquisition = acquisition_ - min_acfn
+            max_value_ =  (max_value + min_acfn)
+        else:
+            acquisition = acquisition_
+            max_value_ = max_value
+
         n_data_plot = grid.shape[0]
 
         #Clear the plot
@@ -429,6 +448,7 @@ def create_animation_continuous(
         #Set title
         if title is not None:
             ax1.set_title(title)
+
 
         #Plot observations, true model and predicted model
         ax1.plot(grid.reshape(n_data_plot), mean, '-', label='Prediction')
@@ -442,12 +462,12 @@ def create_animation_continuous(
 
         #Plot acquisition function
         ax2.plot(grid.reshape(n_data_plot), acquisition)
-        ax2.plot(max_x, -max_value, 'ro')
+        ax2.plot(max_x, -max_value_, 'ro')
         ax2.set_ylabel('Acquisition func.')
         ax2.set_xlabel('$x$')
 
-        max_acquisition_ = max(max(acquisition),-1*max_value)*1.1
-        min_acquisition_ = -0.1*max_acquisition_
+        max_acquisition_ = max(max(acquisition),-1*max_value_)*1.1
+        min_acquisition_ = -max_acquisition_*0.1
 
         ax2.set_ylim(min_acquisition_,max_acquisition_)
         ax1.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
