@@ -18,16 +18,13 @@ def check_model(regression_model, acquisition_function):
 
         if isinstance(reg_model_pure, LinearRegression):
             if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
-                print('Acquisition functin is not implemented for Linear Regression: {}'.format(acquisition_function))
-                exit()
+                raise Exception('Acquisition function {} not implemented for model {}'.format(acquisition_function, reg_model_pure))
         elif not isinstance(reg_model_pure, GPR):
             if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
-                print('Acquisition functin is not implemented for Non-GPR models: {}'.format(acquisition_function))
-                exit()
+                raise Exception('Acquisition function {} not implemented for model {}'.format(acquisition_function, reg_model_pure))
         else:
             if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc', 'ei', 'ucb', 'poi', 'std', 'uidal', 'SGSx']:
-                print('Acquisition function not implemented: {}'.format(acquisition_function))
-                exit()
+                raise Exception('Acquisition function {} not implemented for model {}'.format(acquisition_function, reg_model_pure))
     else: 
         print('Using a custom acquisition function. This is an experimental feature. Please be careful.')
 

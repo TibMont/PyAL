@@ -17,7 +17,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 
 from PyAL.optimize_step import step_discrete
-from PyAL.utils import check_model
+import PyAL.utils as utils
 
 import logging
 
@@ -144,7 +144,7 @@ def run_batch_learning_multi(models,
 
     reg_models_pure = []
     for regression_model in regression_models:
-        reg_models_pure.append(check_model(regression_model, acquisition_function))
+        reg_models_pure.append(utils.check_model(regression_model, acquisition_function))
     
     #Set random number generator
     if isinstance(random_state, int) or random_state==None:
@@ -167,8 +167,6 @@ def run_batch_learning_multi(models,
     #Generate a pool of sample data points
     if not isinstance(pool, np.ndarray):
         pool = utils.generate_pool(dimensions, lim)
-
-    pool_poly = poly_transformer.fit_transform(pool)
 
     #Number of data points in pool
     n_data = len(pool)
@@ -285,8 +283,8 @@ def run_batch_learning_multi(models,
             mean_test[i,...], std_test[i,...] = utils.make_prediction(test_set, regression_models[i], poly_transformer)
             scores_test_individual[i,0,...] = utils.calculate_errors(y_true_test[i], mean_test[i])
 
-        scores_test[0,...] = utils.calculate_errors(y_true_test_aggregated, mean_test_aggregated)
         mean_test_aggregated = aggregation_function(mean_test, **kwargs)
+        scores_test[0,...] = utils.calculate_errors(y_true_test_aggregated, mean_test_aggregated)
     
     #Start active learning
     for a in range(active_learning_steps):
@@ -443,7 +441,7 @@ def run_batch_learning_multi(models,
             for i in range(n_models):
                 mean_test[i,...], std_test[i,...] = utils.make_prediction(test_set, regression_models[i],
                                                                           poly_transformer)
-                scores_test_individual[i,a+1,0] = utils.calculate_errors(y_true_test[i], mean_test[i])
+                scores_test_individual[i,a+1,...] = utils.calculate_errors(y_true_test[i], mean_test[i])
 
             mean_test_aggregated = aggregation_function(mean_test, **kwargs)
             scores_test[a+1, ...] = utils.calculate_errors(y_true_test_aggregated, mean_test_aggregated)          
