@@ -247,6 +247,9 @@ def run_continuous_batch_learning_multi(models,
     n_observations = np.linspace(initial_samples, initial_samples+(active_learning_steps)*batch_size,
                             active_learning_steps+1)
     
+    scores_train_individual = np.zeros((n_models, active_learning_steps+1,3))
+    max_value_individual = np.zeros((n_models, active_learning_steps+1,1))
+    
     mean_train = np.zeros((n_models, len(sample_x)))
     std_train = np.zeros((n_models, len(sample_x)))
     for i in range(n_models):
@@ -255,6 +258,8 @@ def run_continuous_batch_learning_multi(models,
         #Initial model predictions for training set
         mean_train[i,...], std_train[i,...] = utils.make_prediction(sample_x, regression_models[i], 
                                                                     poly_transformer)
+        scores_train_individual[i,0,...] = utils.calculate_errors(observation_y[i], mean_train[i])
+        max_value_individual[i,0,0] = np.max(observation_y[i])
     
     mean_train_aggregated = aggregation_function(mean_train, **kwargs)
     scores_train[0,...] = utils.calculate_errors(observation_y_aggregated.flatten(), mean_train_aggregated.flatten())
@@ -262,6 +267,7 @@ def run_continuous_batch_learning_multi(models,
     
     if calculate_test_metrics:
         scores_test = np.zeros((active_learning_steps+1,3))
+        scores_test_individual = np.zeros((n_models, active_learning_steps+1,3))
 
         mean = np.zeros((n_models, len(pool)))
         std = np.zeros((n_models, len(pool)))
@@ -269,6 +275,7 @@ def run_continuous_batch_learning_multi(models,
         for i in range(n_models):
             mean[i,...], std[i,...] = utils.make_prediction(pool, regression_models[i],
                                                             poly_transformer)
+            scores_test_individual[i,0,...] = utils.calculate_errors(y_true[i], mean[i])
             
         #Save scores
         mean_aggregated = aggregation_function(mean, **kwargs)
@@ -353,15 +360,22 @@ def run_continuous_batch_learning_multi(models,
         sample_x = np.vstack([sample_x, batch_sample])
 
         if single_update:
-            #transform results to a pandas DataFrame
             if calculate_test_metrics:
-                results = utils.results_to_df(n_observations, scores_train, max_value, scores_test, 
-                                              single_update=True)
+                result_dict = {}
+                result_dict['aggregated'] = utils.results_to_df(n_observations[0], scores_train[0], 
+                                                                max_value[0], scores_test[0], single_update=True)
+                for i in range(n_models):
+                    result_dict['model_'+str(i)] = utils.results_to_df(n_observations[0], scores_train_individual[i,0], 
+                                                                       max_value_individual[i,0], scores_test_individual[i,0],
+                                                                       single_update=True)
             else:
-                results = utils.results_to_df(n_observations, scores_train, max_value,
-                                              single_update=True)
-                    
-            return sample_x, results
+                result_dict = {}
+                result_dict['aggregated'] = utils.results_to_df(n_observations[0], scores_train[0], 
+                                                                max_value[0], single_update=True)
+                for i in range(n_models):
+                    result_dict['model_'+str(i)] = utils.results_to_df(n_observations[0], scores_train_individual[i,0], 
+                                                                       max_value_individual[i,0], single_update=True)
+            return sample_x, result_dict
 
         observation_new = np.zeros((n_models, len(batch_sample)))
         for i in range(n_models):
@@ -385,6 +399,8 @@ def run_continuous_batch_learning_multi(models,
             
             mean_train[i,...], std_train[i,...] = utils.make_prediction(sample_x, regression_models[i],
                                                                         poly_transformer)
+            scores_train_individual[i,a+1,...] = utils.calculate_errors(observation_y[i], mean_train[i])
+            max_value_individual[i,a+1,0] = np.max(observation_y[i])
 
             if verbose: 
                 print('Model {}'.format(i))
@@ -406,8 +422,10 @@ def run_continuous_batch_learning_multi(models,
         if calculate_test_metrics:
             mean = np.zeros((n_models, len(pool)))
             std = np.zeros((n_models, len(pool)))
+            for i in range(n_models):
+                mean[i,...], std[i,...] = utils.make_prediction(pool, regression_models[i], poly_transformer)
+                scores_test_individual[i,a+1,0] = utils.calculate_errors(y_true[i], mean[i])
 
-            mean[i,...], std[i,...] = utils.make_prediction(pool, regression_models[i], poly_transformer)
             mean_aggregated = aggregation_function(mean, **kwargs)
             scores_test[a+1,...] = utils.calculate_errors(y_true_aggregated.flatten(), mean_aggregated.flatten())
     
@@ -416,8 +434,17 @@ def run_continuous_batch_learning_multi(models,
     #transform results to a pandas DataFrame
     
     if calculate_test_metrics:
-        results = utils.results_to_df(n_observations, scores_train, max_value, scores_test)
+        result_dict = {}
+        result_dict['aggregated'] = utils.results_to_df(n_observations, scores_train, 
+                                                        max_value, scores_test)
+        for i in range(n_models):
+            result_dict['model_'+str(i)] = utils.results_to_df(n_observations, scores_train_individual[i], 
+                                                                max_value_individual[i], scores_test_individual[i])
     else:
-        results = utils.results_to_df(n_observations, scores_train, max_value)
-    
-    return sample_x, observation_y, results
+        result_dict = {}
+        result_dict['aggregated'] = utils.results_to_df(n_observations, scores_train, 
+                                                        max_value)
+        for i in range(n_models):
+            result_dict['model_'+str(i)] = utils.results_to_df(n_observations, scores_train_individual[i], 
+                                                                max_value_individual[i])
+    return sample_x, observation_y, result_dict

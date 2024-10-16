@@ -268,9 +268,7 @@ def run_batch_learning_multi(models,
     
     if calculate_test_metrics:
         scores_test = np.zeros((active_learning_steps+1,3))
-        scores_test_individual = []
-        for i in range(n_models):
-            scores_test_individual.append(scores_train.copy())
+        scores_test_individual = np.zeros((n_models, active_learning_steps+1,3))
 
         if extra_test_set == False:
             mask = np.ones(y_true.size, dtype=bool)

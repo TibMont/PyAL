@@ -412,20 +412,18 @@ def run_batch_learning(model,
 
         mean_test, _ = utils.make_prediction(test_set, regression_model, poly_transformer)
         scores_test[0,...] = utils.calculate_errors(y_true_test, mean_test)
-        
-    
+
     #Start active learning
     for i in range(active_learning_steps):
 
         batch_indices = np.zeros(batch_size, dtype=np.int32)
         estimated_observation_y = observation_y.copy()
         estimated_sample_x = sample_x.copy()
-        
+
         for j in range(batch_size):
             if j != 0:
                 regression_model = utils.fit_model(estimated_samplex, estimated_observation_y,
                                                    regression_model, poly_transformer)
-
                 mean, std = utils.make_prediction(pool, regression_model, poly_transformer)
 
             #Make masks to ignore already evaluated samples for the acquisition function
@@ -462,13 +460,13 @@ def run_batch_learning(model,
             acquisition_masked = acquisition[mask]
             index = np.where(acquisition_masked==np.max(acquisition_masked))[0]
             index = mask_indices[index]
-            
+
             #If more than one samples are suited equally well pick one randomly
             if len(index) > 1:
                 ind = rng.randint(0,len(index),1)
                 index = np.array(index[ind])
             data_indices = np.concatenate([data_indices, index])
-                
+
             estimated_x_max = pool[index]
             estimated_sample_x = np.vstack([estimated_sample_x, estimated_x_max])
 
@@ -502,11 +500,11 @@ def run_batch_learning(model,
 
             mean_test, _ = utils.make_prediction(test_set, regression_model, poly_transformer)
             scores_test[i+1, ...] = utils.calculate_errors(y_true_test, mean_test)
-        
+
     #transform results to a pandas DataFrame
     if calculate_test_metrics:
         results = utils.results_to_df(n_observations, scores_train, max_value, scores_test)
     else:
         results = utils.results_to_df(n_observations, scores_train, max_value)
-    
+
     return sample_x, observation_y, results
