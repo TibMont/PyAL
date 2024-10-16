@@ -370,7 +370,6 @@ def create_animation_continuous(
                     gpr,
                     observation_y,
                     sample_x,
-                    sample_x_poly,
                     custom_acfn_input,
                     alpha,
                     sampler,

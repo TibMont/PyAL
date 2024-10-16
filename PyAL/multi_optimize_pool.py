@@ -277,7 +277,6 @@ def run_batch_learning_multi(models,
             mask[data_indices] = False
             mask_indices = np.where(mask==True)[0]
             test_set = pool[mask_indices]
-            test_set_poly = pool_poly[mask_indices]
             y_true_test = y_true[mask_indices]
             y_true_test_aggregated = y_true_aggregated[mask_indices]
             
@@ -382,10 +381,24 @@ def run_batch_learning_multi(models,
         # Updated pool with batch data
         x_max = pool[batch_indices]
         sample_x = np.vstack([sample_x, x_max])
-        
-        for i, regression_model in enumerate(regression_models):
-            if isinstance(reg_models_pure[i], LinearRegression):
-                sample_x_poly = poly_transformer.fit_transform(sample_x)
+
+        if single_update:
+            if calculate_test_metrics:
+                result_dict = {}
+                result_dict['aggregated'] = utils.results_to_df(n_observations[0], scores_train[0], 
+                                                                max_value[0], scores_test[0], single_update=True)
+                for i in range(n_models):
+                    result_dict['model_'+str(i)] = utils.results_to_df(n_observations[0], scores_train_individual[i,0], 
+                                                                       max_value_individual[i,0], scores_test_individual[i,0],
+                                                                       single_update=True)
+            else:
+                result_dict = {}
+                result_dict['aggregated'] = utils.results_to_df(n_observations[0], scores_train[0], 
+                                                                max_value[0], single_update=True)
+                for i in range(n_models):
+                    result_dict['model_'+str(i)] = utils.results_to_df(n_observations[0], scores_train_individual[i,0], 
+                                                                       max_value_individual[i,0], single_update=True)
+            return sample_x, result_dict
 
         observation_new = np.zeros((n_models, len(x_max)))
         for i in range(n_models):
@@ -435,40 +448,21 @@ def run_batch_learning_multi(models,
                 scores_test_individual[i,a+1,0] = utils.calculate_errors(y_true_test[i], mean_test[i])
 
             mean_test_aggregated = aggregation_function(mean_test, **kwargs)
-            scores_test[a+1, ...] = utils.calculate_errors(y_true_test_aggregated, mean_test_aggregated)
-
-        if single_update:
-            #transform results to a pandas DataFrame
-            if calculate_test_metrics:
-                results = np.hstack([n_observations[0], scores_train[0].T, scores_test[0].T, max_value[0].T]).reshape(1,-1)
-                results = pd.DataFrame(results, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
-            else:
-                results = np.hstack([n_observations[0], scores_train[0].T, max_value[0].T]).reshape(1,-1)
-                results = pd.DataFrame(results, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
-            
-            return sample_x, results            
+            scores_test[a+1, ...] = utils.calculate_errors(y_true_test_aggregated, mean_test_aggregated)          
         
     #transform results to a pandas DataFrame
     if calculate_test_metrics:
         result_dict = {}
-        results = np.vstack([n_observations, scores_train.T, scores_test.T, max_value.T])
-        results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
-        result_dict['aggregated'] = results.copy()
-        
+        result_dict['aggregated'] = utils.results_to_df(n_observations, scores_train, 
+                                                        max_value, scores_test)
         for i in range(n_models):
-            results = np.vstack([n_observations, scores_train_individual[i].T, scores_test_individual[i].T, max_value_individual[i].T])
-            results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
-            result_dict['model_'+str(i)] = results.copy()
-    
+            result_dict['model_'+str(i)] = utils.results_to_df(n_observations, scores_train_individual[i], 
+                                                                max_value_individual[i], scores_test_individual[i])
     else:
         result_dict = {}
-        results = np.vstack([n_observations, scores_train.T, max_value.T])
-        results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
-        result_dict['aggregated'] = results.copy()
-        
+        result_dict['aggregated'] = utils.results_to_df(n_observations, scores_train, 
+                                                        max_value)
         for i in range(n_models):
-            results = np.vstack([n_observations, scores_train_individual[i].T, max_value_individual[i].T])
-            results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
-            result_dict['model_'+str(i)] = results.copy()
-
-    return sample_x, result_dict
+            result_dict['model_'+str(i)] = utils.results_to_df(n_observations, scores_train_individual[i], 
+                                                                max_value_individual[i])
+    return sample_x, observation_y, result_dict

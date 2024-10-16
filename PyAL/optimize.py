@@ -247,13 +247,11 @@ def run_continuous_batch_learning(model,
         
     #transform results to a pandas DataFrame
     if calculate_test_metrics:
-        results = np.vstack([n_observations, scores_train.T, scores_test.T, max_value.T])
-        results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
+        results = utils.results_to_df(n_observations, scores_train, max_value, scores_test)
     else:
-        results = np.vstack([n_observations, scores_train.T, max_value.T])
-        results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
+        results = utils.results_to_df(n_observations, scores_train, max_value)
 
-    return sample_x, results
+    return sample_x, observation_y, results
 
 
 def run_batch_learning(model, 
@@ -507,10 +505,8 @@ def run_batch_learning(model,
         
     #transform results to a pandas DataFrame
     if calculate_test_metrics:
-        results = np.vstack([n_observations, scores_train.T, scores_test.T, max_value.T])
-        results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
+        results = utils.results_to_df(n_observations, scores_train, max_value, scores_test)
     else:
-        results = np.vstack([n_observations, scores_train.T, max_value.T])
-        results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
+        results = utils.results_to_df(n_observations, scores_train, max_value)
     
-    return sample_x, results
+    return sample_x, observation_y, results

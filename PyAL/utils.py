@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 
 from sklearn.gaussian_process import GaussianProcessRegressor as GPR
 from sklearn.linear_model import LinearRegression
@@ -95,3 +96,26 @@ def calculate_errors(y_true, mean):
 
     return scores
 
+def results_to_df(
+        n_observations,
+        scores_train,
+        max_value,
+        scores_test=None,
+        single_update=False
+):
+    if scores_test is None:
+        columns = ['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation']
+        results = np.vstack([n_observations, scores_train.T, max_value.T])
+        if single_update:
+            results = results.reshape(1,-1)
+        results = pd.DataFrame(results.T, columns=columns)
+    else:
+        columns = ['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 
+                    'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation']
+        results = np.vstack([n_observations, scores_train.T, scores_test.T, max_value.T])
+        if single_update:
+            results = results.reshape(1,-1)
+        results = pd.DataFrame(results.T, columns=columns)
+    
+    return results
+        

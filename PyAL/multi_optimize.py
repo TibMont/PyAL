@@ -267,7 +267,7 @@ def run_continuous_batch_learning_multi(models,
         std = np.zeros((n_models, len(pool)))
 
         for i in range(n_models):
-            mean[i,...], std[i,...] = utils.make_prediction(pool, regression_models[i]
+            mean[i,...], std[i,...] = utils.make_prediction(pool, regression_models[i],
                                                             poly_transformer)
             
         #Save scores
@@ -352,6 +352,17 @@ def run_continuous_batch_learning_multi(models,
         # Updated pool with batch data
         sample_x = np.vstack([sample_x, batch_sample])
 
+        if single_update:
+            #transform results to a pandas DataFrame
+            if calculate_test_metrics:
+                results = utils.results_to_df(n_observations, scores_train, max_value, scores_test, 
+                                              single_update=True)
+            else:
+                results = utils.results_to_df(n_observations, scores_train, max_value,
+                                              single_update=True)
+                    
+            return sample_x, results
+
         observation_new = np.zeros((n_models, len(batch_sample)))
         for i in range(n_models):
             observation_new[i,...] = models[i].evaluate(batch_sample, noise=noise[i])
@@ -399,26 +410,14 @@ def run_continuous_batch_learning_multi(models,
             mean[i,...], std[i,...] = utils.make_prediction(pool, regression_models[i], poly_transformer)
             mean_aggregated = aggregation_function(mean, **kwargs)
             scores_test[a+1,...] = utils.calculate_errors(y_true_aggregated.flatten(), mean_aggregated.flatten())
-
-        if single_update:
-            #transform results to a pandas DataFrame
-            if calculate_test_metrics:
-                results = np.hstack([n_observations[0], scores_train[0].T, scores_test[0].T, max_value[0].T]).reshape(1,-1)
-                results = pd.DataFrame(results, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
-            else:
-                results = np.hstack([n_observations[0], scores_train[0].T, max_value[0].T]).reshape(1,-1)
-                results = pd.DataFrame(results, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
-            
-            return sample_x, observation_y, results
     
     logger.info('Finished Active Learning')
 
     #transform results to a pandas DataFrame
+    
     if calculate_test_metrics:
-        results = np.vstack([n_observations, scores_train.T, scores_test.T, max_value.T])
-        results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
+        results = utils.results_to_df(n_observations, scores_train, max_value, scores_test)
     else:
-        results = np.vstack([n_observations, scores_train.T, max_value.T])
-        results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
+        results = utils.results_to_df(n_observations, scores_train, max_value)
     
     return sample_x, observation_y, results
