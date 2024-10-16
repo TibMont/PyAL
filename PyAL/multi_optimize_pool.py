@@ -166,25 +166,17 @@ def run_batch_learning_multi(models,
 
     #Generate a pool of sample data points
     if not isinstance(pool, np.ndarray):
-        x = []
-        for i in range(dimensions):
-            x.append(np.linspace(*lim, 20))
-
-        pool = np.meshgrid(*x)
-        pool = np.array(pool).T
-        pool = pool.reshape(len(x[0]**dimensions), dimensions)
+        pool = utils.generate_pool(dimensions, lim)
 
     pool_poly = poly_transformer.fit_transform(pool)
 
     #Number of data points in pool
-
     n_data = len(pool)
 
     if calculate_test_metrics:
         if isinstance(test_set, np.ndarray):
             n_data_test = len(test_set)
             y_true_test = np.zeros((n_models, n_data_test))
-            test_set_poly = poly_transformer.fit_transform(test_set)
             for i in range(n_models):
                 model = models[i]
                 y_true_test[i, ...] = model.evaluate(test_set, noise = noise[i])
@@ -236,7 +228,6 @@ def run_batch_learning_multi(models,
         raise Exception('Initializiation method not implemented')
 
     sample_x = pool[rand_num]
-    sample_x_poly = poly_transformer.fit_transform(sample_x)
     observation_y = np.zeros((n_models, len(sample_x)))
     for i in range(n_models):
         observation_y[i, ...] = models[i].evaluate(sample_x, noise=noise[i])
@@ -251,32 +242,36 @@ def run_batch_learning_multi(models,
     n_observations = np.linspace(initial_samples, initial_samples+(active_learning_steps)*batch_size,
                                  active_learning_steps+1)
     
-    scores_train_individual = []
-    max_value_individual = []
+    scores_train_individual = np.zeros((n_models, active_learning_steps+1,3))
+    max_value_individual = np.zeros((n_models, active_learning_steps+1,1))
+
+    #Fit initial model
+    mean = np.zeros((n_models, len(pool)))
+    std = np.zeros((n_models, len(pool))) 
+
     for i in range(n_models):
-        scores_train_individual.append(scores_train.copy())
-        max_value_individual.append(max_value.copy())
+        regression_models[i] = utils.fit_model(sample_x, observation_y[i],
+                                               regression_models[i], poly_transformer)
+        
+        mean[i,...], std[i,...] = utils.make_prediction(pool, regression_models[i],
+                                                        poly_transformer)
+        
+        #Save scores of individual models
+        scores_train_individual[i,0,...] = utils.calculate_errors(observation_y[i], mean[i][data_indices])
+        max_value_individual[i,0,0] = np.max(observation_y[i])
 
-
+    #Save scores of aggregated model
+    mean_train_aggregated = aggregation_function(mean, **kwargs)
+    std_train_aggregated = aggregation_function(std, uncert=True, **kwargs)
+    scores_train[0,...] = utils.calculate_errors(observation_y_aggregated, mean_train_aggregated[data_indices])
+    max_value[0,0] = np.max(observation_y_aggregated)
+    
     if calculate_test_metrics:
         scores_test = np.zeros((active_learning_steps+1,3))
-
         scores_test_individual = []
         for i in range(n_models):
             scores_test_individual.append(scores_train.copy())
 
-
-    for i in range(n_models):
-        if isinstance(reg_models_pure[i], LinearRegression):
-            regression_models[i].fit(sample_x_poly, observation_y[i])
-        else:
-            regression_models[i].fit(sample_x, observation_y[i])
-
-    #Fit initial model
-    mean = np.zeros((n_models, len(pool)))
-    std = np.zeros((n_models, len(pool)))
-
-    if calculate_test_metrics:
         if extra_test_set == False:
             mask = np.ones(y_true.size, dtype=bool)
             mask[data_indices] = False
@@ -289,49 +284,12 @@ def run_batch_learning_multi(models,
         mean_test = np.zeros((n_models, len(test_set)))
         std_test = np.zeros((n_models, len(test_set)))
 
-    for i in range(n_models):
-        #Calculate metrics
-        if calculate_test_metrics:
-            if isinstance(reg_models_pure[i], GPR):   
-                mean_test[i,...], std_test[i,...] = regression_models[i].predict(test_set,return_std=True)
-            elif isinstance(reg_models_pure[i], LinearRegression):
-                mean_test[i,...] = regression_models[i].predict(test_set_poly)
-            else:
-                mean_test[i,...] = regression_models[i].predict(test_set)
-        
-
-        if isinstance(reg_models_pure[i], GPR):   
-            mean[i,...], std[i,...] = regression_models[i].predict(pool,return_std=True)
-        elif isinstance(reg_models_pure[i], LinearRegression):
-            mean[i,...] = regression_models[i].predict(pool_poly)
-        else:
-            mean[i,...] = regression_models[i].predict(pool)
-
-    if calculate_test_metrics:
-        mean_test_aggregated = aggregation_function(mean_test, **kwargs)
-        scores_test[0,0] = mean_squared_error(y_true_test_aggregated, mean_test_aggregated)
-        scores_test[0,1] = mean_absolute_error(y_true_test_aggregated, mean_test_aggregated)
-        scores_test[0,2] = max_error(y_true_test_aggregated, mean_test_aggregated)
-
         for i in range(n_models):
-            scores_test_individual[i][0,0] = mean_squared_error(y_true_test[i], mean_test[i])
-            scores_test_individual[i][0,1] = mean_absolute_error(y_true_test[i], mean_test[i])
-            scores_test_individual[i][0,2] = max_error(y_true_test[i], mean_test[i])
+            mean_test[i,...], std_test[i,...] = utils.make_prediction(test_set, regression_models[i], poly_transformer)
+            scores_test_individual[i,0,...] = utils.calculate_errors(y_true_test[i], mean_test[i])
 
-    #Save scores
-    mean_train_aggregated = aggregation_function(mean, **kwargs)
-    std_train_aggregated = aggregation_function(std, uncert=True, **kwargs)
-    scores_train[0,0] = mean_squared_error(observation_y_aggregated, mean_train_aggregated[data_indices])
-    scores_train[0,1] = mean_absolute_error(observation_y_aggregated, mean_train_aggregated[data_indices])
-    scores_train[0,2] = max_error(observation_y_aggregated, mean_train_aggregated[data_indices])
-    max_value[0,0] = np.max(observation_y_aggregated)
-
-    for i in range(n_models):
-        scores_train_individual[i][0,0] = mean_squared_error(observation_y[i], mean[i][data_indices])
-        scores_train_individual[i][0,1] = mean_absolute_error(observation_y[i], mean[i][data_indices])
-        scores_train_individual[i][0,2] = max_error(observation_y[i], mean[i][data_indices])
-        max_value_individual[i][0,0] = np.max(observation_y[i])
-
+        scores_test[0,...] = utils.calculate_errors(y_true_test_aggregated, mean_test_aggregated)
+        mean_test_aggregated = aggregation_function(mean_test, **kwargs)
     
     #Start active learning
     for a in range(active_learning_steps):
@@ -340,9 +298,6 @@ def run_batch_learning_multi(models,
         estimated_observation_y = observation_y.copy()
         estimated_sample_x = sample_x.copy()
         estimated_observation_y_aggregated = observation_y_aggregated.copy()
-        for k, regression_model in enumerate(regression_models):
-            if isinstance(reg_models_pure[k], LinearRegression):
-                estimated_sample_x_poly = sample_x_poly.copy()
         
         for j in range(batch_size):
 
@@ -350,16 +305,10 @@ def run_batch_learning_multi(models,
                 mean = np.zeros((n_models, len(pool)))
                 std = np.zeros((n_models, len(pool)))
                 for i in range(n_models):
-                    if isinstance(reg_models_pure[i], LinearRegression):
-                        regression_models[i].fit(estimated_sample_x_poly, estimated_observation_y[i])
-                    else:
-                        regression_models[i].fit(estimated_sample_x, estimated_observation_y[i])
-                    if isinstance(reg_models_pure[i], GPR):
-                        mean[i,...], std[i,...] = regression_models[i].predict(pool,return_std=True)
-                    elif isinstance(reg_models_pure[i], LinearRegression):
-                        mean[i,...] = regression_models[i].predict(pool_poly)
-                    else:
-                        mean[i,...] = regression_models[i].predict(pool)
+                    regression_models[i] = utils.fit_model(estimated_sample_x, estimated_observation_y[i],
+                                                           regression_models[i], poly_transformer)
+                    mean[i,...], std[i,...] = utils.make_prediction(pool, regression_models[i], 
+                                                                    poly_transformer)
 
                 mean_train_aggregated = aggregation_function(mean, **kwargs)
                 std_train_aggregated = aggregation_function(std, uncert=True, **kwargs)
@@ -371,12 +320,6 @@ def run_batch_learning_multi(models,
             mask_z = np.ones(pool.shape[0], dtype=np.int32)
             mask_z[data_indices] = 0
 
-            #Optional plotting for debugging
-            #plt.plot(sample_x, observation_y, 'o')
-            #plt.plot(pool, y_true, 'k')
-            #plt.plot(pool, mean)
-            #plt.show()
-
             if acquisition_function == 'qbc':
                 S_models = []
                 for i in range(n_models):
@@ -385,15 +328,14 @@ def run_batch_learning_multi(models,
                         train_index = rng.randint(0,len(estimated_sample_x),len(estimated_sample_x))
                         if isinstance(reg_models_pure[i], LinearRegression):
                             poly_x = poly_transformer
+                            estimated_sample_x_poly = poly_transformer.transform(estimated_sample_x)
                             regression_models[i].fit(estimated_sample_x_poly[train_index], estimated_observation_y[i][train_index])
                         else:
                             poly_x = None
                             regression_models[i].fit(estimated_sample_x[train_index], estimated_observation_y[i][train_index])
                         alpha_models.append(copy.deepcopy(regression_model))
                     S_models.append(alpha_models)
-                imp = QBC_multi(pool, S_models, aggregation_function, poly_x, **kwargs)
-                imp = imp*mask_z
-                index = np.where(imp==np.max(imp))[0]
+                acquisition = QBC_multi(pool, S_models, aggregation_function, poly_x, **kwargs)
             else:
                 acquisition = step_discrete(
                     acquisition_function, 
@@ -415,9 +357,6 @@ def run_batch_learning_multi(models,
                 
             estimated_x_max = pool[index]
             estimated_sample_x = np.vstack([estimated_sample_x, estimated_x_max])
-            for i, regression_model in enumerate(regression_models):
-                if isinstance(reg_models_pure[i], LinearRegression):
-                    estimated_sample_x_poly = poly_transformer.fit_transform(estimated_sample_x)
 
             #Assume estimated predictions
                 
@@ -426,15 +365,8 @@ def run_batch_learning_multi(models,
             estimated_observation_new = np.zeros((n_models, len(estimated_x_max.reshape(1,-1))))
 
             for i in range(n_models):
-                if isinstance(reg_models_pure[i], GPR):
-                    mean_new[i,...], std_new[i,...] = regression_models[i].predict(pool[index].reshape(1,-1), return_std=True)
-                elif isinstance(reg_models_pure[i], LinearRegression):
-                    new_x_poly = poly_transformer.fit_transform(pool[index].reshape(1,-1))
-                    mean_new[i,...] = regression_models[i].predict(new_x_poly)
-                    std_new[i,...] = fictive_noise_level
-                else:
-                    mean_new[i,...] = regression_models[i].predict(pool[index].reshape(1,-1))
-                    std_new[i,...] = fictive_noise_level
+                mean_new[i,...], std_new[i,...] = utils.make_prediction(pool[index], regression_models[i],
+                                                                        poly_transformer, fictive_noise_level)
 
                 estimated_observation_new[i,...] = mean_new[i]+rng.normal(0, std_new[i], size=1)
 
@@ -450,17 +382,6 @@ def run_batch_learning_multi(models,
         # Updated pool with batch data
         x_max = pool[batch_indices]
         sample_x = np.vstack([sample_x, x_max])
-
-        if single_update:
-            #transform results to a pandas DataFrame
-            if calculate_test_metrics:
-                results = np.hstack([n_observations[0], scores_train[0].T, scores_test[0].T, max_value[0].T]).reshape(1,-1)
-                results = pd.DataFrame(results, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
-            else:
-                results = np.hstack([n_observations[0], scores_train[0].T, max_value[0].T]).reshape(1,-1)
-                results = pd.DataFrame(results, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
-            
-            return sample_x, results
         
         for i, regression_model in enumerate(regression_models):
             if isinstance(reg_models_pure[i], LinearRegression):
@@ -479,68 +400,53 @@ def run_batch_learning_multi(models,
         mean = np.zeros((n_models, len(pool)))
         std = np.zeros((n_models, len(pool)))
 
+        for i in range(n_models):
+            regression_models[i] = utils.fit_model(sample_x, observation_y[i],
+                                                   regression_models[i], poly_transformer)
+            mean[i,...], std[i,...] = utils.make_prediction(pool, regression_models[i],
+                                                            poly_transformer)
+            
+            #Save individual scores
+            scores_train_individual[i,a+1,...] = utils.calculate_errors(observation_y[i], mean[i][data_indices])
+            max_value_individual[i,a+1,0] = np.max(observation_y[i])
+            
+        #Save aggregated scores 
+        mean_train_aggregated = aggregation_function(mean, **kwargs)
+        std_train_aggregated = aggregation_function(std, uncert=True, **kwargs)
+        scores_train[a+1, ...] = utils.calculate_errors(observation_y_aggregated, mean_train_aggregated[data_indices])
+        max_value[a+1,0] = np.max(observation_y_aggregated)
+
+        
         if calculate_test_metrics:
             if extra_test_set == False:
                 mask = np.ones(y_true.size, dtype=bool)
                 mask[data_indices] = False
                 mask_indices = np.where(mask==True)[0]
                 test_set = pool[mask_indices]
-                test_set_poly = pool_poly[mask_indices]
                 y_true_test = y_true[mask_indices]
                 y_true_test_aggregated = y_true_aggregated[mask_indices]
 
             mean_test = np.zeros((n_models, len(test_set)))
             std_test = np.zeros((n_models, len(test_set)))
 
-        for i in range(n_models):
-            regression_model = regression_models[i]
-            if isinstance(reg_models_pure[i], LinearRegression):
-                regression_model.fit(sample_x_poly, observation_y[i])
-            else:
-                regression_model.fit(sample_x, observation_y[i])
-
-            ###Here###
-            if calculate_test_metrics:
-                if isinstance(reg_models_pure[i], GPR):
-                    mean_test[i,...], std_test[i,...] = regression_models[i].predict(test_set,return_std=True)
-                elif isinstance(reg_models_pure[i], LinearRegression):
-                    mean_test[i,...] = regression_models[i].predict(test_set_poly)
-                else:
-                    mean_test[i,...] = regression_models[i].predict(test_set)
-
-            if isinstance(reg_models_pure[i], GPR):
-                mean[i,...], std[i,...] = regression_models[i].predict(pool,return_std=True)
-            elif isinstance(reg_models_pure[i], LinearRegression):
-                mean[i,...] = regression_models[i].predict(pool_poly)
-            else:
-                mean[i,...] = regression_models[i].predict(pool)
-        
-        #############
-        if calculate_test_metrics:
-            mean_test_aggregated = aggregation_function(mean_test, **kwargs)
-            scores_test[a+1,0] = mean_squared_error(y_true_test_aggregated, mean_test_aggregated)
-            scores_test[a+1,1] = mean_absolute_error(y_true_test_aggregated, mean_test_aggregated)
-            scores_test[a+1,2] = max_error(y_true_test_aggregated, mean_test_aggregated)
-
             for i in range(n_models):
-                scores_test_individual[i][a+1,0] = mean_squared_error(y_true_test[i], mean_test[i])
-                scores_test_individual[i][a+1,1] = mean_absolute_error(y_true_test[i], mean_test[i])
-                scores_test_individual[i][a+1,2] = max_error(y_true_test[i], mean_test[i])
+                mean_test[i,...], std_test[i,...] = utils.make_prediction(test_set, regression_models[i],
+                                                                          poly_transformer)
+                scores_test_individual[i,a+1,0] = utils.calculate_errors(y_true_test[i], mean_test[i])
 
-        #Save scores
-        mean_train_aggregated = aggregation_function(mean, **kwargs)
-        std_train_aggregated = aggregation_function(std, uncert=True, **kwargs)
-        scores_train[a+1,0] = mean_squared_error(observation_y_aggregated, mean_train_aggregated[data_indices])
-        scores_train[a+1,1] = mean_absolute_error(observation_y_aggregated, mean_train_aggregated[data_indices])
-        scores_train[a+1,2] = max_error(observation_y_aggregated, mean_train_aggregated[data_indices])
-        max_value[a+1,0] = np.max(observation_y_aggregated)
+            mean_test_aggregated = aggregation_function(mean_test, **kwargs)
+            scores_test[a+1, ...] = utils.calculate_errors(y_true_test_aggregated, mean_test_aggregated)
 
-        for i in range(n_models):
-            scores_train_individual[i][a+1,0] = mean_squared_error(observation_y[i], mean[i][data_indices])
-            scores_train_individual[i][a+1,1] = mean_absolute_error(observation_y[i], mean[i][data_indices])
-            scores_train_individual[i][a+1,2] = max_error(observation_y[i], mean[i][data_indices])
-            max_value_individual[i][a+1,0] = np.max(observation_y[i])
-        ############            
+        if single_update:
+            #transform results to a pandas DataFrame
+            if calculate_test_metrics:
+                results = np.hstack([n_observations[0], scores_train[0].T, scores_test[0].T, max_value[0].T]).reshape(1,-1)
+                results = pd.DataFrame(results, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
+            else:
+                results = np.hstack([n_observations[0], scores_train[0].T, max_value[0].T]).reshape(1,-1)
+                results = pd.DataFrame(results, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
+            
+            return sample_x, results            
         
     #transform results to a pandas DataFrame
     if calculate_test_metrics:

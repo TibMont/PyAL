@@ -3,28 +3,23 @@
 # Version: 0.1
 # License: MIT license
 
+import copy
+import sys
+import os
+import warnings
+
 import numpy as np
 import pandas as pd
 
 from scipy.stats.qmc import LatinHypercube as LHS
 from scipy.stats.qmc import scale
-from scipy.stats import norm
 
-from sklearn.metrics import mean_squared_error, mean_absolute_error, max_error
-from sklearn.gaussian_process import GaussianProcessRegressor as GPR
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 
-from PyAL.acfn_discrete import EI, POI, UCB, IDEAL, GSx, GSy, iGS, QBC, SGSx, UIDAL
+from PyAL.acfn_discrete import QBC
 from PyAL.optimize_step import step_continuous, step_discrete
 import PyAL.utils as utils
-
-import copy
-from pyswarms.single.global_best import GlobalBestPSO
-
-import sys
-import os
-import warnings
 
 if not sys.warnoptions:
     print('Disabled warnings')
@@ -195,7 +190,6 @@ def run_continuous_batch_learning(model,
                                         poly_transformer)
         scores_test[0, ...] = utils.calculate_errors(y_true, mean)
 
-    
     #Start active learning
     for i in range(active_learning_steps):
 

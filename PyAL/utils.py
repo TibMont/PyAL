@@ -94,3 +94,4 @@ def calculate_errors(y_true, mean):
     scores[2] = max_error(y_true, mean)
 
     return scores
+

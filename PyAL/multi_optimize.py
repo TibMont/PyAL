@@ -23,7 +23,7 @@ from sklearn.preprocessing import PolynomialFeatures
 from sklearn.pipeline import Pipeline
 
 from PyAL.optimize_step import step_continous_multi
-from PyAL.utils import check_model
+import PyAL.utils as utils
 
 import logging
 
@@ -150,7 +150,7 @@ def run_continuous_batch_learning_multi(models,
     
     reg_models_pure = []
     for regression_model in regression_models:
-        reg_models_pure.append(check_model(regression_model, acquisition_function))
+        reg_models_pure.append(utils.check_model(regression_model, acquisition_function))
 
     #Set random number generator
     if isinstance(random_state, int) or random_state==None:
@@ -162,22 +162,6 @@ def run_continuous_batch_learning_multi(models,
     dimensions = models[0].n_features
     n_models = len(models)
 
-    #Generate a pool of sample data points for testing
-    if calculate_test_metrics == True:
-        logger.info('Test metrics will be calculated.')
-        if not isinstance(pool, np.ndarray):
-            x = []
-            for i in range(dimensions):
-                x.append(np.linspace(*lim, 10))
-
-            pool = np.meshgrid(*x)
-            pool = np.array(pool).T
-            pool = pool.reshape(len(x[0]**dimensions), dimensions)
-
-        pool_poly = poly_transformer.fit_transform(pool)
-    else:
-        logger.info('Test metrics will not be calculated.')
-
     #Check if noise is int or float, noise will be applied to every model individually
     if isinstance(noise, int) or isinstance(noise, float):
         noise_old = noise
@@ -188,7 +172,12 @@ def run_continuous_batch_learning_multi(models,
         logger.info('Noise converted: ')
         logger.info('from {} to {}'.format(noise_old, noise))
 
-    if calculate_test_metrics: 
+    #Generate a pool of sample data points for testing
+    if calculate_test_metrics:
+        logger.info('Test metrics will be calculated.')
+        if not isinstance(pool, np.ndarray):
+            pool = utils.generate_pool(dimensions, lim)
+    
         #Number of data points in pool
         n_data = len(pool)
         y_true = np.zeros((n_models, n_data))
@@ -197,6 +186,9 @@ def run_continuous_batch_learning_multi(models,
             y_true[i, ...] = model.evaluate(pool, noise = noise[i])
 
         y_true_aggregated = aggregation_function(y_true, **kwargs)
+    
+    else:
+        logger.info('Test metrics will not be calculated.')
 
     sampler = LHS(d=dimensions, seed=random_state)
     #Generate initial data
@@ -255,54 +247,32 @@ def run_continuous_batch_learning_multi(models,
     n_observations = np.linspace(initial_samples, initial_samples+(active_learning_steps)*batch_size,
                             active_learning_steps+1)
     
+    mean_train = np.zeros((n_models, len(sample_x)))
+    std_train = np.zeros((n_models, len(sample_x)))
+    for i in range(n_models):
+        regression_models[i] = utils.fit_model(sample_x, observation_y[i], 
+                                               regression_models[i], poly_transformer)
+        #Initial model predictions for training set
+        mean_train[i,...], std_train[i,...] = utils.make_prediction(sample_x, regression_models[i], 
+                                                                    poly_transformer)
+    
+    mean_train_aggregated = aggregation_function(mean_train, **kwargs)
+    scores_train[0,...] = utils.calculate_errors(observation_y_aggregated.flatten(), mean_train_aggregated.flatten())
+    max_value[0,0] = np.max(observation_y_aggregated)
+    
     if calculate_test_metrics:
-        #To save the metrics
         scores_test = np.zeros((active_learning_steps+1,3))
 
-    #Fit initial model
-    if calculate_test_metrics:
         mean = np.zeros((n_models, len(pool)))
         std = np.zeros((n_models, len(pool)))
 
-    mean_train = np.zeros((n_models, len(sample_x)))
-    std_train = np.zeros((n_models, len(sample_x)))
-
-    for i in range(n_models):
-        if isinstance(reg_models_pure[i], LinearRegression):
-            sample_x_poly = poly_transformer.fit_transform(sample_x)
-            regression_models[i].fit(sample_x_poly, observation_y[i])
-        else:
-            regression_models[i].fit(sample_x, observation_y[i])
-
-        #Initial model predictions for test set
-        if calculate_test_metrics:  
-            if isinstance(reg_models_pure[i], GPR):
-                mean[i,...], std[i,...] = regression_models[i].predict(pool,return_std=True)
-            elif isinstance(reg_models_pure[i], LinearRegression):
-                mean[i,...] = regression_models[i].predict(pool_poly)
-            else:
-                mean[i,...] = regression_models[i].predict(pool)
-
-        #Initial model predictions for training set
-        if isinstance(reg_models_pure[i], GPR):
-            mean_train[i,...], std_train[i,...] = regression_models[i].predict(sample_x,return_std=True)
-        elif isinstance(reg_models_pure[i], LinearRegression):
-            mean_train[i,...] = regression_models[i].predict(sample_x_poly)
-        else:
-            mean_train[i,...] = regression_models[i].predict(sample_x)
-    
-    #Save scores
-    if calculate_test_metrics:
+        for i in range(n_models):
+            mean[i,...], std[i,...] = utils.make_prediction(pool, regression_models[i]
+                                                            poly_transformer)
+            
+        #Save scores
         mean_aggregated = aggregation_function(mean, **kwargs)
-        scores_test[0,0] = mean_squared_error(y_true_aggregated, mean_aggregated)
-        scores_test[0,1] = mean_absolute_error(y_true_aggregated, mean_aggregated)
-        scores_test[0,2] = max_error(y_true_aggregated.flatten(), mean_aggregated.flatten())
-
-    mean_train_aggregated = aggregation_function(mean_train, **kwargs)
-    scores_train[0,0] = mean_squared_error(observation_y_aggregated, mean_train_aggregated)
-    scores_train[0,1] = mean_absolute_error(observation_y_aggregated, mean_train_aggregated)
-    scores_train[0,2] = max_error(observation_y_aggregated.flatten(), mean_train_aggregated.flatten())
-    max_value[0,0] = np.max(observation_y_aggregated)
+        scores_test[0,...] = utils.calculate_errors(y_true_aggregated.flatten(), mean_aggregated.flatten())
 
 
     #Active Learning loop starts here
@@ -310,7 +280,6 @@ def run_continuous_batch_learning_multi(models,
     logger.info('Start Active Learning')
     logger.info('Optimization method: {}'.format(opt_method))
     logger.info('Acquisition function: {}'.format(acquisition_function))
-
 
     #Start active learning
     for a in range(active_learning_steps):
@@ -321,31 +290,15 @@ def run_continuous_batch_learning_multi(models,
         estimated_observation_y = observation_y.copy()
         estimated_sample_x = sample_x.copy()
         estimated_observation_y_aggregated = observation_y_aggregated.copy()
-        for i, regression_model in enumerate(regression_models):
-            if isinstance(reg_models_pure[i], LinearRegression):
-                estimated_sample_x_poly = sample_x_poly.copy()
-            else:
-                estimated_sample_x_poly = None
         
         for j in range(batch_size):
-
             #For the first sample in a batch we can use the model with which we evaluated the scores
             if j != 0:
-                if calculate_test_metrics:
-                    mean = np.zeros((n_models, len(pool)))
-                    std = np.zeros((n_models, len(pool)))
-
+                #Fit models
                 for i in range(n_models):
-                    if isinstance(reg_models_pure[i], LinearRegression):
-                        regression_models[i].fit(estimated_sample_x_poly, estimated_observation_y[i])
-                    else:
-                        regression_models[i].fit(estimated_sample_x, estimated_observation_y[i])
-                    #mean[i, ...], std[i, ...] = regression_model.predict(pool,return_std=True)
+                    regression_models[i] = utils.fit_model(estimated_sample_x, estimated_observation_y[i],
+                                                           regression_models[i], poly_transformer)
 
-                #mean_aggregated = aggregation_function(mean, **kwargs)
-
-            #Choose from optimization routines
-            #TODO: enable more customizability of parameters for optimization routines
 
             for i in range(n_models):        
                 if isinstance(reg_models_pure[i], LinearRegression):
@@ -380,24 +333,14 @@ def run_continuous_batch_learning_multi(models,
             estimated_observation_new = np.zeros((n_models, len(new_x.reshape(1,-1))))
 
             for i in range(n_models):
-                if isinstance(reg_models_pure[i], GPR):
-                    mean_new[i,...], std_new[i,...] = regression_models[i].predict(new_x.reshape(1,-1), return_std=True)
-                elif isinstance(reg_models_pure[i], LinearRegression):
-                    new_x_poly = poly_transformer.fit_transform(new_x.reshape(1,-1))
-                    mean_new[i,...] = regression_models[i].predict(new_x_poly)
-                    std_new[i,...] = fictive_noise_level
-                else:
-                    mean_new[i,...] = regression_models[i].predict(new_x.reshape(1,-1))
-                    std_new[i,...] = fictive_noise_level
+                mean_new[i,...], std_new[i,...] = utils.make_prediction(new_x, regression_models[i],
+                                                                        poly_transformer, fictive_noise_level)
                 estimated_observation_new[i,...] = mean_new[i,]+rng.normal(0, std_new[i], size=1)
             
             estimated_observation_new_aggregated = aggregation_function(estimated_observation_new, **kwargs)
 
             #Store the new estimated observations
             estimated_sample_x = np.vstack([estimated_sample_x, new_x])
-            for i, regression_model in enumerate(regression_models):
-                if isinstance(reg_models_pure[i], LinearRegression):
-                    estimated_sample_x_poly = poly_transformer.fit_transform(estimated_sample_x)
             estimated_observation_y = np.hstack([estimated_observation_y, estimated_observation_new])
             estimated_observation_y_aggregated = np.hstack([estimated_observation_y_aggregated, 
                                                             estimated_observation_new_aggregated])
@@ -409,21 +352,6 @@ def run_continuous_batch_learning_multi(models,
         # Updated pool with batch data
         sample_x = np.vstack([sample_x, batch_sample])
 
-        if single_update:
-            #transform results to a pandas DataFrame
-            if calculate_test_metrics:
-                results = np.hstack([n_observations[0], scores_train[0].T, scores_test[0].T, max_value[0].T]).reshape(1,-1)
-                results = pd.DataFrame(results, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
-            else:
-                results = np.hstack([n_observations[0], scores_train[0].T, max_value[0].T]).reshape(1,-1)
-                results = pd.DataFrame(results, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
-            
-            return sample_x, observation_y, results
-
-        for i, regression_model in enumerate(regression_models):
-            if isinstance(reg_models_pure[i], LinearRegression):
-                sample_x_poly = poly_transformer.fit_transform(sample_x)
-
         observation_new = np.zeros((n_models, len(batch_sample)))
         for i in range(n_models):
             observation_new[i,...] = models[i].evaluate(batch_sample, noise=noise[i])
@@ -434,10 +362,6 @@ def run_continuous_batch_learning_multi(models,
         observation_y_aggregated = np.hstack([observation_y_aggregated, observation_new_aggregated])
 
         # Fit new model with updated real training set
-        if calculate_test_metrics:
-            mean = np.zeros((n_models, len(pool)))
-            std = np.zeros((n_models, len(pool)))
-
         mean_train = np.zeros((n_models, len(sample_x)))
         std_train = np.zeros((n_models, len(sample_x)))
 
@@ -445,26 +369,12 @@ def run_continuous_batch_learning_multi(models,
         if verbose: print('Active learning step: {}'.format(a))
 
         for i in range(n_models):
-            if isinstance(reg_models_pure[i], LinearRegression):
-                regression_models[i].fit(sample_x_poly, observation_y[i])
-            else:
-                regression_models[i].fit(sample_x, observation_y[i])
-
-            if calculate_test_metrics:
-                if isinstance(reg_models_pure[i], GPR):
-                    mean[i,...], std[i,...] = regression_models[i].predict(pool,return_std=True)
-                elif isinstance(reg_models_pure[i], LinearRegression):
-                    mean[i,...] = regression_models[i].predict(pool_poly)
-                else:
-                    mean[i,...] = regression_models[i].predict(pool)
-
-            if isinstance(reg_models_pure[i], GPR):
-                mean_train[i,...], std_train[i,...] = regression_models[i].predict(sample_x,return_std=True)
-            elif isinstance(reg_models_pure[i], LinearRegression):
-                mean_train[i,...] = regression_models[i].predict(sample_x_poly)
-            else:
-                mean_train[i,...] = regression_models[i].predict(sample_x)
+            regression_models[i] = utils.fit_model(sample_x, observation_y[i], 
+                                                   regression_models[i], poly_transformer)
             
+            mean_train[i,...], std_train[i,...] = utils.make_prediction(sample_x, regression_models[i],
+                                                                        poly_transformer)
+
             if verbose: 
                 print('Model {}'.format(i))
                 if isinstance(regression_models[i], Pipeline):
@@ -478,21 +388,28 @@ def run_continuous_batch_learning_multi(models,
                     else:
                         print(regression_models[i])
 
-        if calculate_test_metrics:
-            mean_aggregated = aggregation_function(mean, **kwargs)
-            scores_test[a+1,0] = mean_squared_error(y_true_aggregated, mean_aggregated)
-            scores_test[a+1,1] = mean_absolute_error(y_true_aggregated, mean_aggregated)
-            scores_test[a+1,2] = max_error(y_true_aggregated.flatten(), mean_aggregated.flatten())
-
         mean_train_aggregated = aggregation_function(mean_train, **kwargs)
-        #print('New iteration')
-        #print(sample_x.shape)
-        #print(observation_y_aggregated.shape)
-        #print(mean_train_aggregated.shape)
-        scores_train[a+1,0] = mean_squared_error(observation_y_aggregated, mean_train_aggregated)
-        scores_train[a+1,1] = mean_absolute_error(observation_y_aggregated, mean_train_aggregated)
-        scores_train[a+1,2] = max_error(observation_y_aggregated.flatten(), mean_train_aggregated.flatten())
+        scores_train[a+1,...] = utils.calculate_errors(observation_y_aggregated.flatten(), mean_train_aggregated.flatten())
         max_value[a+1,0] = np.max(observation_y_aggregated)
+
+        if calculate_test_metrics:
+            mean = np.zeros((n_models, len(pool)))
+            std = np.zeros((n_models, len(pool)))
+
+            mean[i,...], std[i,...] = utils.make_prediction(pool, regression_models[i], poly_transformer)
+            mean_aggregated = aggregation_function(mean, **kwargs)
+            scores_test[a+1,...] = utils.calculate_errors(y_true_aggregated.flatten(), mean_aggregated.flatten())
+
+        if single_update:
+            #transform results to a pandas DataFrame
+            if calculate_test_metrics:
+                results = np.hstack([n_observations[0], scores_train[0].T, scores_test[0].T, max_value[0].T]).reshape(1,-1)
+                results = pd.DataFrame(results, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
+            else:
+                results = np.hstack([n_observations[0], scores_train[0].T, max_value[0].T]).reshape(1,-1)
+                results = pd.DataFrame(results, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
+            
+            return sample_x, observation_y, results
     
     logger.info('Finished Active Learning')
 
