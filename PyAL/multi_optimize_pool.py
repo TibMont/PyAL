@@ -3,32 +3,21 @@
 # Version: 0.1
 # License: MIT license
 
-import numpy as np
-import pandas as pd
-
-from PyAL.acfn_discrete import EI, POI, UCB, IDEAL, GSx, GSy, iGS, QBC, SGSx, UIDAL
-
-from scipy.stats.qmc import LatinHypercube as LHS
-from scipy.stats.qmc import scale
-from scipy.stats import norm
-
-from scipy.optimize import minimize
-
-from sklearn.metrics import mean_squared_error, mean_absolute_error, max_error
-from sklearn.model_selection import cross_validate
-from sklearn.gaussian_process import GaussianProcessRegressor as GPR
-from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import PolynomialFeatures
-from sklearn.pipeline import Pipeline
-
 import copy
-from pyswarms.single.global_best import GlobalBestPSO
-
-from PyAL.optimize_step import step_discrete
-
 import sys
 import os
 import warnings
+
+import numpy as np
+import pandas as pd
+
+from sklearn.metrics import mean_squared_error, mean_absolute_error, max_error
+from sklearn.gaussian_process import GaussianProcessRegressor as GPR
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import PolynomialFeatures
+
+from PyAL.optimize_step import step_discrete
+from PyAL.utils import check_model
 
 import logging
 
@@ -153,19 +142,9 @@ def run_batch_learning_multi(models,
     else:
         regression_models = [copy.deepcopy(regression_models) for i in range(len(models))]
 
+    reg_models_pure = []
     for regression_model in regression_models:
-        if isinstance(regression_model, LinearRegression):
-            if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
-                print('Acquisition functin is not implemented for Linear Regression: {}'.format(acquisition_function))
-                exit()
-        elif not isinstance(regression_model, GPR):
-            if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
-                print('Acquisition functin is not implemented for Non-GPR models: {}'.format(acquisition_function))
-                exit()
-        else:
-            if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc', 'ei', 'ucb', 'poi', 'std', 'uidal', 'SGSx']:
-                print('Acquisition function not implemented: {}'.format(acquisition_function))
-                exit()
+        reg_models_pure.append(check_model(regression_model, acquisition_function))
     
     #Set random number generator
     if isinstance(random_state, int) or random_state==None:
@@ -288,7 +267,7 @@ def run_batch_learning_multi(models,
 
 
     for i in range(n_models):
-        if isinstance(regression_models[i], LinearRegression):
+        if isinstance(reg_models_pure[i], LinearRegression):
             regression_models[i].fit(sample_x_poly, observation_y[i])
         else:
             regression_models[i].fit(sample_x, observation_y[i])
@@ -313,17 +292,17 @@ def run_batch_learning_multi(models,
     for i in range(n_models):
         #Calculate metrics
         if calculate_test_metrics:
-            if isinstance(regression_models[i], GPR):   
+            if isinstance(reg_models_pure[i], GPR):   
                 mean_test[i,...], std_test[i,...] = regression_models[i].predict(test_set,return_std=True)
-            elif isinstance(regression_models[i], LinearRegression):
+            elif isinstance(reg_models_pure[i], LinearRegression):
                 mean_test[i,...] = regression_models[i].predict(test_set_poly)
             else:
                 mean_test[i,...] = regression_models[i].predict(test_set)
         
 
-        if isinstance(regression_models[i], GPR):   
+        if isinstance(reg_models_pure[i], GPR):   
             mean[i,...], std[i,...] = regression_models[i].predict(pool,return_std=True)
-        elif isinstance(regression_models[i], LinearRegression):
+        elif isinstance(reg_models_pure[i], LinearRegression):
             mean[i,...] = regression_models[i].predict(pool_poly)
         else:
             mean[i,...] = regression_models[i].predict(pool)
@@ -361,8 +340,8 @@ def run_batch_learning_multi(models,
         estimated_observation_y = observation_y.copy()
         estimated_sample_x = sample_x.copy()
         estimated_observation_y_aggregated = observation_y_aggregated.copy()
-        for regression_model in regression_models:
-            if isinstance(regression_model, LinearRegression):
+        for k, regression_model in enumerate(regression_models):
+            if isinstance(reg_models_pure[k], LinearRegression):
                 estimated_sample_x_poly = sample_x_poly.copy()
         
         for j in range(batch_size):
@@ -371,13 +350,13 @@ def run_batch_learning_multi(models,
                 mean = np.zeros((n_models, len(pool)))
                 std = np.zeros((n_models, len(pool)))
                 for i in range(n_models):
-                    if isinstance(regression_models[i], LinearRegression):
+                    if isinstance(reg_models_pure[i], LinearRegression):
                         regression_models[i].fit(estimated_sample_x_poly, estimated_observation_y[i])
                     else:
                         regression_models[i].fit(estimated_sample_x, estimated_observation_y[i])
-                    if isinstance(regression_models[i], GPR):
+                    if isinstance(reg_models_pure[i], GPR):
                         mean[i,...], std[i,...] = regression_models[i].predict(pool,return_std=True)
-                    elif isinstance(regression_models[i], LinearRegression):
+                    elif isinstance(reg_models_pure[i], LinearRegression):
                         mean[i,...] = regression_models[i].predict(pool_poly)
                     else:
                         mean[i,...] = regression_models[i].predict(pool)
@@ -404,7 +383,7 @@ def run_batch_learning_multi(models,
                     alpha_models = []
                     for _ in range(alpha):
                         train_index = rng.randint(0,len(estimated_sample_x),len(estimated_sample_x))
-                        if isinstance(regression_models[i], LinearRegression):
+                        if isinstance(reg_models_pure[i], LinearRegression):
                             poly_x = poly_transformer
                             regression_models[i].fit(estimated_sample_x_poly[train_index], estimated_observation_y[i][train_index])
                         else:
@@ -425,8 +404,9 @@ def run_batch_learning_multi(models,
                     rng,
                 )
 
-            acquisition_masked = acquisition*mask_z
+            acquisition_masked = acquisition[mask]
             index = np.where(acquisition_masked==np.max(acquisition_masked))[0]
+            index = mask_indices[index]
             
             if len(index) > 1:
                 ind = rng.randint(0,len(index),1)
@@ -435,8 +415,8 @@ def run_batch_learning_multi(models,
                 
             estimated_x_max = pool[index]
             estimated_sample_x = np.vstack([estimated_sample_x, estimated_x_max])
-            for regression_model in regression_models:
-                if isinstance(regression_model, LinearRegression):
+            for i, regression_model in enumerate(regression_models):
+                if isinstance(reg_models_pure[i], LinearRegression):
                     estimated_sample_x_poly = poly_transformer.fit_transform(estimated_sample_x)
 
             #Assume estimated predictions
@@ -446,9 +426,9 @@ def run_batch_learning_multi(models,
             estimated_observation_new = np.zeros((n_models, len(estimated_x_max.reshape(1,-1))))
 
             for i in range(n_models):
-                if isinstance(regression_model, GPR):
+                if isinstance(reg_models_pure[i], GPR):
                     mean_new[i,...], std_new[i,...] = regression_models[i].predict(pool[index].reshape(1,-1), return_std=True)
-                elif isinstance(regression_models[i], LinearRegression):
+                elif isinstance(reg_models_pure[i], LinearRegression):
                     new_x_poly = poly_transformer.fit_transform(pool[index].reshape(1,-1))
                     mean_new[i,...] = regression_models[i].predict(new_x_poly)
                     std_new[i,...] = fictive_noise_level
@@ -482,8 +462,8 @@ def run_batch_learning_multi(models,
             
             return sample_x, results
         
-        for regression_model in regression_models:
-            if isinstance(regression_model, LinearRegression):
+        for i, regression_model in enumerate(regression_models):
+            if isinstance(reg_models_pure[i], LinearRegression):
                 sample_x_poly = poly_transformer.fit_transform(sample_x)
 
         observation_new = np.zeros((n_models, len(x_max)))
@@ -514,23 +494,23 @@ def run_batch_learning_multi(models,
 
         for i in range(n_models):
             regression_model = regression_models[i]
-            if isinstance(regression_model, LinearRegression):
+            if isinstance(reg_models_pure[i], LinearRegression):
                 regression_model.fit(sample_x_poly, observation_y[i])
             else:
                 regression_model.fit(sample_x, observation_y[i])
 
             ###Here###
             if calculate_test_metrics:
-                if isinstance(regression_models[i], GPR):
+                if isinstance(reg_models_pure[i], GPR):
                     mean_test[i,...], std_test[i,...] = regression_models[i].predict(test_set,return_std=True)
-                elif isinstance(regression_models[i], LinearRegression):
+                elif isinstance(reg_models_pure[i], LinearRegression):
                     mean_test[i,...] = regression_models[i].predict(test_set_poly)
                 else:
                     mean_test[i,...] = regression_models[i].predict(test_set)
 
-            if isinstance(regression_models[i], GPR):
+            if isinstance(reg_models_pure[i], GPR):
                 mean[i,...], std[i,...] = regression_models[i].predict(pool,return_std=True)
-            elif isinstance(regression_models[i], LinearRegression):
+            elif isinstance(reg_models_pure[i], LinearRegression):
                 mean[i,...] = regression_models[i].predict(pool_poly)
             else:
                 mean[i,...] = regression_models[i].predict(pool)

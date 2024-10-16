@@ -10,17 +10,14 @@ from scipy.stats.qmc import LatinHypercube as LHS
 from scipy.stats.qmc import scale
 from scipy.stats import norm
 
-from scipy.optimize import minimize
-
 from sklearn.metrics import mean_squared_error, mean_absolute_error, max_error
-from sklearn.model_selection import cross_validate
 from sklearn.gaussian_process import GaussianProcessRegressor as GPR
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 
 from PyAL.acfn_discrete import EI, POI, UCB, IDEAL, GSx, GSy, iGS, QBC, SGSx, UIDAL
-from PyAL.acfn_continuous import EI_con, POI_con, UCB_con, IDEAL_con, GSx_con, GSy_con, iGS_con, QBC_con, SGSx_con, std_con, UIDAL_con
 from PyAL.optimize_step import step_continuous, step_discrete
+from PyAL.utils import check_model
 
 import copy
 from pyswarms.single.global_best import GlobalBestPSO
@@ -129,21 +126,8 @@ def run_continuous_batch_learning(model,
 
 
     '''
-    if not callable(acquisition_function):
-        if isinstance(regression_model, LinearRegression):
-            if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
-                print('Acquisition functin is not implemented for Linear Regression: {}'.format(acquisition_function))
-                exit()
-        elif not isinstance(regression_model, GPR):
-            if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
-                print('Acquisition functin is not implemented for Non-GPR models: {}'.format(acquisition_function))
-                exit()
-        else:
-            if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc', 'ei', 'ucb', 'poi', 'std', 'uidal', 'SGSx']:
-                print('Acquisition function not implemented: {}'.format(acquisition_function))
-                exit()
-    else: 
-        print('Using a custom acquisition function. This is an experimental feature. Please be careful.')
+
+    reg_model_pure = check_model(regression_model, acquisition_function)
     
     #Set random number generator
     if isinstance(random_state, int) or random_state==None:
@@ -208,7 +192,7 @@ def run_continuous_batch_learning(model,
         scores_test = np.zeros((active_learning_steps+1,3))
 
     #Fit initial model
-    if isinstance(regression_model, LinearRegression):
+    if isinstance(reg_model_pure, LinearRegression):
         sample_x_poly = poly_transformer.fit_transform(sample_x)
         regression_model.fit(sample_x_poly, observation_y)
     else:
@@ -217,9 +201,9 @@ def run_continuous_batch_learning(model,
 
     #Initial model predictions  
     if calculate_test_metrics:  
-        if isinstance(regression_model, GPR):
+        if isinstance(reg_model_pure, GPR):
             mean, std = regression_model.predict(pool,return_std=True)
-        elif isinstance(regression_model, LinearRegression):
+        elif isinstance(reg_model_pure, LinearRegression):
             mean = regression_model.predict(pool_poly)
         else:
             mean = regression_model.predict(pool)
@@ -229,9 +213,9 @@ def run_continuous_batch_learning(model,
         scores_test[0,1] = mean_absolute_error(y_true, mean)
         scores_test[0,2] = max_error(y_true, mean)
 
-    if isinstance(regression_model, GPR):
+    if isinstance(reg_model_pure, GPR):
         mean_train, std_train = regression_model.predict(sample_x,return_std=True)
-    elif isinstance(regression_model, LinearRegression):
+    elif isinstance(reg_model_pure, LinearRegression):
         mean_train = regression_model.predict(sample_x_poly)
     else:
         mean_train = regression_model.predict(sample_x)
@@ -248,7 +232,7 @@ def run_continuous_batch_learning(model,
         batch_sample = np.zeros((batch_size, dimensions))
         estimated_observation_y = observation_y.copy()
         estimated_sample_x = sample_x.copy()
-        if isinstance(regression_model, LinearRegression):
+        if isinstance(reg_model_pure, LinearRegression):
             estimated_sample_x_poly = sample_x_poly.copy()
         else:
             estimated_sample_x_poly = None
@@ -256,7 +240,7 @@ def run_continuous_batch_learning(model,
         for j in range(batch_size):
             
             if j != 0:
-                if isinstance(regression_model, LinearRegression):
+                if isinstance(reg_model_pure, LinearRegression):
                     regression_model.fit(estimated_sample_x_poly, estimated_observation_y)
                 else:
                     regression_model.fit(estimated_sample_x, estimated_observation_y)
@@ -270,7 +254,7 @@ def run_continuous_batch_learning(model,
             #Choose from optimization routines
             #TODO: enable more customizability of parameters for optimization routines
 
-            if isinstance(regression_model, LinearRegression):
+            if isinstance(reg_model_pure, LinearRegression):
                 poly_x = poly_transformer
             else:
                 poly_x = None
@@ -281,9 +265,9 @@ def run_continuous_batch_learning(model,
                             custom_acfn_input, alpha, sampler, lim, dimensions, poly_x,n_jobs, pso_options, rng)
 
             #Assume estimated predictions
-            if isinstance(regression_model, GPR):
+            if isinstance(reg_model_pure, GPR):
                 mean_new, std_new = regression_model.predict(new_x.reshape(1,-1), return_std=True)
-            elif isinstance(regression_model, LinearRegression):
+            elif isinstance(reg_model_pure, LinearRegression):
                 new_x_poly = poly_transformer.fit_transform(new_x.reshape(-1,1), axis=0)
                 mean_new = regression_model.predict(new_x_poly)
                 std_new = fictive_noise_level
@@ -294,28 +278,28 @@ def run_continuous_batch_learning(model,
             
             #Store the new estimated observations
             estimated_sample_x = np.vstack([estimated_sample_x, new_x])
-            if isinstance(regression_model, LinearRegression):
+            if isinstance(reg_model_pure, LinearRegression):
                 estimated_sample_x_poly = poly_transformer.fit_transform(estimated_sample_x)
             estimated_observation_y = np.hstack([estimated_observation_y, estimated_observation_new])
             batch_sample[j,...] = new_x
 
         # Updated pool with batch data
         sample_x = np.vstack([sample_x, batch_sample])
-        if isinstance(regression_model, LinearRegression):
+        if isinstance(reg_model_pure, LinearRegression):
             sample_x_poly = poly_transformer.fit_transform(sample_x)
         observation_new = model.evaluate(batch_sample, noise=noise)
         observation_y = np.hstack([observation_y, observation_new])
 
         # Fit new model with updated real training set
-        if isinstance(regression_model, LinearRegression):
+        if isinstance(reg_model_pure, LinearRegression):
             regression_model.fit(sample_x_poly, observation_y)
         else:
             regression_model.fit(sample_x, observation_y)
 
         if calculate_test_metrics:
-            if isinstance(regression_model, GPR):
+            if isinstance(reg_model_pure, GPR):
                 mean, std = regression_model.predict(pool,return_std=True)
-            elif isinstance(regression_model, LinearRegression):
+            elif isinstance(reg_model_pure, LinearRegression):
                 mean = regression_model.predict(pool_poly)
             else:
                 mean = regression_model.predict(pool)
@@ -325,9 +309,9 @@ def run_continuous_batch_learning(model,
             scores_test[i+1,1] = mean_absolute_error(y_true, mean)
             scores_test[i+1,2] = max_error(y_true, mean)
 
-        if isinstance(regression_model, GPR):
+        if isinstance(reg_model_pure, GPR):
             mean_train, std_train = regression_model.predict(sample_x,return_std=True)
-        elif isinstance(regression_model, LinearRegression):
+        elif isinstance(reg_model_pure, LinearRegression):
             mean_train = regression_model.predict(sample_x_poly)
         else:
             mean_train = regression_model.predict(sample_x)
@@ -422,18 +406,7 @@ def run_batch_learning(model,
 
     '''
 
-    if isinstance(regression_model, LinearRegression):
-        if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
-            print('Acquisition functin is not implemented for Linear Regression: {}'.format(acquisition_function))
-            exit()
-    elif not isinstance(regression_model, GPR):
-        if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
-            print('Acquisition functin is not implemented for Non-GPR models: {}'.format(acquisition_function))
-            exit()
-    else:
-        if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc', 'ei', 'ucb', 'poi', 'std', 'uidal', 'SGSx']:
-            print('Acquisition function not implemented: {}'.format(acquisition_function))
-            exit()
+    reg_model_pure = check_model(regression_model, acquisition_function)
     
     #Set random number generator
     if isinstance(random_state, int) or random_state==None:
@@ -510,7 +483,7 @@ def run_batch_learning(model,
     if calculate_test_metrics:
         scores_test = np.zeros((active_learning_steps+1,3))
 
-    if isinstance(regression_model, LinearRegression):
+    if isinstance(reg_model_pure, LinearRegression):
         regression_model.fit(sample_x_poly, observation_y)
     else:
         regression_model.fit(sample_x, observation_y)
@@ -525,9 +498,9 @@ def run_batch_learning(model,
             test_set_poly = pool_poly[mask_indices]
             y_true_test = y_true[mask_indices]
 
-        if isinstance(regression_model, GPR):   
+        if isinstance(reg_model_pure, GPR):   
             mean_test, std_test = regression_model.predict(test_set,return_std=True)
-        elif isinstance(regression_model, LinearRegression):
+        elif isinstance(reg_model_pure, LinearRegression):
             mean_test = regression_model.predict(test_set_poly)
         else:
             mean_test = regression_model.predict(test_set)
@@ -537,9 +510,9 @@ def run_batch_learning(model,
         scores_test[0,2] = max_error(y_true_test, mean_test)
         
 
-    if isinstance(regression_model, GPR):   
+    if isinstance(reg_model_pure, GPR):   
         mean, std = regression_model.predict(pool,return_std=True)
-    elif isinstance(regression_model, LinearRegression):
+    elif isinstance(reg_model_pure, LinearRegression):
         mean = regression_model.predict(pool_poly)
         std = None
     else:
@@ -559,19 +532,19 @@ def run_batch_learning(model,
         batch_indices = np.zeros(batch_size, dtype=np.int32)
         estimated_observation_y = observation_y.copy()
         estimated_sample_x = sample_x.copy()
-        if isinstance(regression_model, LinearRegression):
+        if isinstance(reg_model_pure, LinearRegression):
             estimated_sample_x_poly = sample_x_poly.copy()
         
         for j in range(batch_size):
 
             if j != 0:
-                if isinstance(regression_model, LinearRegression):
+                if isinstance(reg_model_pure, LinearRegression):
                     regression_model.fit(estimated_sample_x_poly, estimated_observation_y)
                 else:
                     regression_model.fit(estimated_sample_x, estimated_observation_y)
-                if isinstance(regression_model, GPR):
+                if isinstance(reg_model_pure, GPR):
                     mean, std = regression_model.predict(pool,return_std=True)
-                elif isinstance(regression_model, LinearRegression):
+                elif isinstance(reg_model_pure, LinearRegression):
                     mean = regression_model.predict(pool_poly)
                 else:
                     mean = regression_model.predict(pool)
@@ -595,7 +568,7 @@ def run_batch_learning(model,
                 models = []
                 for _ in range(alpha):
                     train_index = rng.randint(0,len(estimated_sample_x),len(estimated_sample_x))
-                    if isinstance(regression_model, LinearRegression):
+                    if isinstance(reg_model_pure, LinearRegression):
                         regression_model.fit(estimated_sample_x_poly[train_index], estimated_observation_y[train_index])
                     else:
                         regression_model.fit(estimated_sample_x[train_index], estimated_observation_y[train_index])
@@ -609,10 +582,13 @@ def run_batch_learning(model,
                     n_data, data_indices, pool,
                     custom_acfn_input,
                     rng)
-            
+
             #Find maximum of acquisition function for non yet evaluated data points
-            acquisition_masked = acquisition*mask_z
+
+            #Avoid to sample already sampled data points
+            acquisition_masked = acquisition[mask]
             index = np.where(acquisition_masked==np.max(acquisition_masked))[0]
+            index = mask_indices[index]
             
             if len(index) > 1:
                 ind = rng.randint(0,len(index),1)
@@ -621,13 +597,13 @@ def run_batch_learning(model,
                 
             estimated_x_max = pool[index]
             estimated_sample_x = np.vstack([estimated_sample_x, estimated_x_max])
-            if isinstance(regression_model, LinearRegression):
+            if isinstance(reg_model_pure, LinearRegression):
                 estimated_sample_x_poly = poly_transformer.fit_transform(estimated_sample_x)
 
             #Assume estimated predictions
-            if isinstance(regression_model, GPR):
+            if isinstance(reg_model_pure, GPR):
                 mean_new, std_new = regression_model.predict(pool[index].reshape(1,-1), return_std=True)
-            elif isinstance(regression_model, LinearRegression):
+            elif isinstance(reg_model_pure, LinearRegression):
                 new_x_poly = poly_transformer.fit_transform(pool[index].reshape(1,-1))
                 mean_new = regression_model.predict(new_x_poly)
                 std_new = fictive_noise_level
@@ -644,11 +620,11 @@ def run_batch_learning(model,
         x_max = pool[batch_indices]
         observation_new = model.evaluate(x_max, noise=noise)
         sample_x = np.vstack([sample_x, x_max])
-        if isinstance(regression_model, LinearRegression):
+        if isinstance(reg_model_pure, LinearRegression):
             sample_x_poly = poly_transformer.fit_transform(sample_x)
         observation_y = np.hstack([observation_y, observation_new])
 
-        if isinstance(regression_model, LinearRegression):
+        if isinstance(reg_model_pure, LinearRegression):
             regression_model.fit(sample_x_poly, observation_y)
         else:
             regression_model.fit(sample_x, observation_y)
@@ -662,9 +638,9 @@ def run_batch_learning(model,
                 test_set_poly = pool_poly[mask_indices]
                 y_true_test = y_true[mask_indices]
 
-            if isinstance(regression_model, GPR):   
+            if isinstance(reg_model_pure, GPR):   
                 mean_test, std_test = regression_model.predict(test_set,return_std=True)
-            elif isinstance(regression_model, LinearRegression):
+            elif isinstance(reg_model_pure, LinearRegression):
                 mean_test = regression_model.predict(test_set_poly)
             else:
                 mean_test = regression_model.predict(test_set)
@@ -674,9 +650,9 @@ def run_batch_learning(model,
             scores_test[i+1,2] = max_error(y_true_test, mean_test)
         
 
-        if isinstance(regression_model, GPR):   
+        if isinstance(reg_model_pure, GPR):   
             mean, std = regression_model.predict(pool,return_std=True)
-        elif isinstance(regression_model, LinearRegression):
+        elif isinstance(reg_model_pure, LinearRegression):
             mean = regression_model.predict(pool_poly)
         else:
             mean = regression_model.predict(pool)

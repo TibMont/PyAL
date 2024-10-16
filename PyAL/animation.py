@@ -189,10 +189,14 @@ def create_animation(
         min_acfn = min(acquisition_)
         if min_acfn<0:
             acquisition = acquisition_ - min_acfn
-            max_value_ = (max_value + min_acfn)
+            max_value_ = (max_value - min_acfn)
         else:
             acquisition = acquisition_
             max_value_ = max_value
+        print('New')
+        print(min_acfn)
+        print(max_value)
+        print(max_value_)
 
         #Clear the plot
         ax1.clear()
