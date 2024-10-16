@@ -134,7 +134,6 @@ def step_continuous(acquisition_function,
                     regression_model,
                     estimated_observation_y,
                     estimated_sample_x,
-                    estimated_sample_x_poly,
                     custom_acfn_input,
                     alpha,
                     sampler,
@@ -159,9 +158,6 @@ def step_continuous(acquisition_function,
         Values of the objective for already evaluated data.
     estimated_sample_x : nd_array
         Values of the data points for already evaluated data.
-    estimated_sample_x_poly : nd_array
-        Values of the data points for already evaluated and to PolynomialFeatures 
-        transformed data points. This is used only for Linear Regression models.
     custom_acfn_input : dict
         Dictionary that contains which information is used by a custom acquisition function.
     alpha : float
@@ -174,6 +170,8 @@ def step_continuous(acquisition_function,
         Number of dimensions of the features.
     poly_x : bool
         Indicates if polynomial features are used.
+        Is a PolynomialFeature object of scikit-learn if Polynomial Features 
+        should be used and None otherwise.
     n_jobs : int
         Number of jobs for PySwarms.
     pso_options : dict
@@ -250,6 +248,7 @@ def step_continuous(acquisition_function,
             for _ in range(alpha):
                 train_index = rng.randint(0,len(estimated_sample_x),len(estimated_sample_x))
                 if isinstance(regression_model, LinearRegression):
+                    estimated_sample_x_poly = poly_x.transform(estimated_sample_x)
                     regression_model.fit(estimated_sample_x_poly[train_index],
                                          estimated_observation_y[train_index])
                 else:
@@ -353,10 +352,11 @@ def step_continuous(acquisition_function,
             for _ in range(alpha):
                 train_index = rng.randint(0,len(estimated_sample_x),len(estimated_sample_x))
                 if isinstance(regression_model, LinearRegression):
+                    estimated_sample_x_poly = poly_x.transform(estimated_sample_x)
                     regression_model.fit(estimated_sample_x_poly[train_index],
                                          estimated_observation_y[train_index])
                 else:
-                    regression_model.fit(estimated_sample_x_poly[train_index],
+                    regression_model.fit(estimated_sample_x[train_index],
                                          estimated_observation_y[train_index])
                 models.append(copy.deepcopy(regression_model))
             cost, new_x = optimizer.optimize(QBC_con, iters=n_iters, verbose=False,
@@ -397,7 +397,6 @@ def step_continous_multi(
                     estimated_observation_y,
                     estimated_observation_y_aggregated,
                     estimated_sample_x,
-                    estimated_sample_x_poly,
                     custom_acfn_input,
                     alpha,
                     sampler,
@@ -430,9 +429,6 @@ def step_continous_multi(
         Values of the aggregated objective for already evaluated data.
     estimated_sample_x : nd_array
         Values of the data points for already evaluated data.
-    estimated_sample_x_poly : nd_array
-        Values of the data points for already evaluated and to PolynomialFeatures 
-        transformed data points. This is used only for Linear Regression models.
     custom_acfn_input : dict
         Dictionary that contains which information is used by a custom acquisition function.
     alpha : float
@@ -445,6 +441,8 @@ def step_continous_multi(
         Number of dimensions of the features.
     poly_x : bool
         Indicates if polynomial features are used.
+        Is a PolynomialFeature object of scikit-learn if Polynomial Features 
+        should be used and None otherwise.
     n_jobs : int
         Number of jobs for PySwarms.
     pso_options : dict
@@ -537,6 +535,7 @@ def step_continous_multi(
                 for _ in range(alpha):
                     train_index = rng.randint(0,len(estimated_sample_x),len(estimated_sample_x))
                     if isinstance(regression_models[i], LinearRegression):
+                        estimated_sample_x_poly = poly_x.transform(estimated_sample_x)
                         regression_models[i].fit(estimated_sample_x_poly[train_index],
                                                  estimated_observation_y[i][train_index])
                     else:
@@ -665,6 +664,7 @@ def step_continous_multi(
                 for _ in range(alpha):
                     train_index = rng.randint(0,len(estimated_sample_x),len(estimated_sample_x))
                     if isinstance(regression_models[i], LinearRegression):
+                        estimated_sample_x_poly = poly_x.transform(estimated_sample_x)
                         regression_models[i].fit(estimated_sample_x_poly[train_index],
                                                  estimated_observation_y[i][train_index])
                     else:

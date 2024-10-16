@@ -17,7 +17,7 @@ from sklearn.preprocessing import PolynomialFeatures
 
 from PyAL.acfn_discrete import EI, POI, UCB, IDEAL, GSx, GSy, iGS, QBC, SGSx, UIDAL
 from PyAL.optimize_step import step_continuous, step_discrete
-from PyAL.utils import check_model
+import PyAL.utils as utils
 
 import copy
 from pyswarms.single.global_best import GlobalBestPSO
@@ -126,28 +126,21 @@ def run_continuous_batch_learning(model,
 
 
     '''
-
-    reg_model_pure = check_model(regression_model, acquisition_function)
+    #Check model and acquisition function compability
+    reg_model_pure = utils.check_model(regression_model, acquisition_function)
     
     #Set random number generator
     if isinstance(random_state, int) or random_state==None:
         rng = np.random.RandomState(seed=random_state)
 
-    poly_transformer = PolynomialFeatures(degree=poly_degree)
-
     #Generate a pool of sample data points for testing
     dimensions = model.n_features
-    if calculate_test_metrics == True:
+    if calculate_test_metrics:
         if not isinstance(pool, np.ndarray):
-            x = []
-            for i in range(dimensions):
-                x.append(np.linspace(*lim, 10))
+            pool = utils.generate_pool(dimensions, lim)
 
-            pool = np.meshgrid(*x)
-            pool = np.array(pool).T
-            pool = pool.reshape(len(x[0]**dimensions), dimensions)
-
-        pool_poly = poly_transformer.fit_transform(pool)
+    #Polynomial feature transformation for linear regression
+    poly_transformer = PolynomialFeatures(degree=poly_degree)
 
     if calculate_test_metrics: 
         y_true = model.evaluate(pool, noise = noise)
@@ -183,48 +176,26 @@ def run_continuous_batch_learning(model,
 
     observation_y = model.evaluate(sample_x, noise=noise)
 
+    #Fit initial model
+    regression_model = utils.fit_model(sample_x, observation_y, regression_model, poly_transformer)
+
     scores_train = np.zeros((active_learning_steps+1,3))
     max_value = np.zeros((active_learning_steps+1,1))
     n_observations = np.linspace(initial_samples, initial_samples+(active_learning_steps)*batch_size,
                             active_learning_steps+1)
-    if calculate_test_metrics:
-        #To save the MSE
-        scores_test = np.zeros((active_learning_steps+1,3))
-
-    #Fit initial model
-    if isinstance(reg_model_pure, LinearRegression):
-        sample_x_poly = poly_transformer.fit_transform(sample_x)
-        regression_model.fit(sample_x_poly, observation_y)
-    else:
-        regression_model.fit(sample_x, observation_y)
-
-
-    #Initial model predictions  
-    if calculate_test_metrics:  
-        if isinstance(reg_model_pure, GPR):
-            mean, std = regression_model.predict(pool,return_std=True)
-        elif isinstance(reg_model_pure, LinearRegression):
-            mean = regression_model.predict(pool_poly)
-        else:
-            mean = regression_model.predict(pool)
-
-        #Save scores
-        scores_test[0,0] = mean_squared_error(y_true, mean)
-        scores_test[0,1] = mean_absolute_error(y_true, mean)
-        scores_test[0,2] = max_error(y_true, mean)
-
-    if isinstance(reg_model_pure, GPR):
-        mean_train, std_train = regression_model.predict(sample_x,return_std=True)
-    elif isinstance(reg_model_pure, LinearRegression):
-        mean_train = regression_model.predict(sample_x_poly)
-    else:
-        mean_train = regression_model.predict(sample_x)
-
-    scores_train[0,0] = mean_squared_error(observation_y, mean_train)
-    scores_train[0,1] = mean_absolute_error(observation_y, mean_train)
-    scores_train[0,2] = max_error(observation_y, mean_train)
+    
+    mean, _ = utils.make_prediction(sample_x, regression_model, 
+                                    poly_transformer)
+    scores_train[0,...] = utils.calculate_errors(observation_y, mean_train)
     max_value[0,0] = np.max(observation_y)
+    
+    if calculate_test_metrics:
+        scores_test = np.zeros((active_learning_steps+1,3))
+        mean, _ = utils.make_prediction(pool, regression_model, 
+                                        poly_transformer)
+        scores_test[0, ...] = utils.calculate_errors(y_true, mean)
 
+    
     #Start active learning
     for i in range(active_learning_steps):
 
@@ -232,28 +203,13 @@ def run_continuous_batch_learning(model,
         batch_sample = np.zeros((batch_size, dimensions))
         estimated_observation_y = observation_y.copy()
         estimated_sample_x = sample_x.copy()
-        if isinstance(reg_model_pure, LinearRegression):
-            estimated_sample_x_poly = sample_x_poly.copy()
-        else:
-            estimated_sample_x_poly = None
         
         for j in range(batch_size):
-            
             if j != 0:
-                if isinstance(reg_model_pure, LinearRegression):
-                    regression_model.fit(estimated_sample_x_poly, estimated_observation_y)
-                else:
-                    regression_model.fit(estimated_sample_x, estimated_observation_y)
-                #if isinstance(regression_model, GPR):
-                #    mean, std = regression_model.predict(pool,return_std=True)
-                #elif isinstance(regression_model, LinearRegression):
-                #    mean = regression_model.predict(pool_poly)
-                #else:
-                #    mean = regression_model.predict(pool)
+                regression_model = utils.fit_model(estimated_sample_x, estimated_observation_y,
+                                                   regression_model, poly_transformer)
 
-            #Choose from optimization routines
-            #TODO: enable more customizability of parameters for optimization routines
-
+            #Transformation of features to polymer features is needed for Linear Regression
             if isinstance(reg_model_pure, LinearRegression):
                 poly_x = poly_transformer
             else:
@@ -261,65 +217,39 @@ def run_continuous_batch_learning(model,
 
             new_x, _ = step_continuous(acquisition_function, 
                             opt_method, regression_model, 
-                            estimated_observation_y, estimated_sample_x,estimated_sample_x_poly,
-                            custom_acfn_input, alpha, sampler, lim, dimensions, poly_x,n_jobs, pso_options, rng)
-
-            #Assume estimated predictions
-            if isinstance(reg_model_pure, GPR):
-                mean_new, std_new = regression_model.predict(new_x.reshape(1,-1), return_std=True)
-            elif isinstance(reg_model_pure, LinearRegression):
-                new_x_poly = poly_transformer.fit_transform(new_x.reshape(-1,1), axis=0)
-                mean_new = regression_model.predict(new_x_poly)
-                std_new = fictive_noise_level
-            else:
-                mean_new = regression_model.predict(new_x.reshape(1,-1))
-                std_new = fictive_noise_level
+                            estimated_observation_y, estimated_sample_x,
+                            custom_acfn_input, alpha, sampler, lim, dimensions,
+                            poly_x,n_jobs, pso_options, rng)
+    
+            mean_new, std_new = utils.make_prediction(new_x, regression_model, 
+                                                      poly_transformer, fictive_noise_level)
+            
             estimated_observation_new = mean_new+rng.normal(0, std_new, size=1)
             
             #Store the new estimated observations
             estimated_sample_x = np.vstack([estimated_sample_x, new_x])
-            if isinstance(reg_model_pure, LinearRegression):
-                estimated_sample_x_poly = poly_transformer.fit_transform(estimated_sample_x)
             estimated_observation_y = np.hstack([estimated_observation_y, estimated_observation_new])
             batch_sample[j,...] = new_x
 
         # Updated pool with batch data
         sample_x = np.vstack([sample_x, batch_sample])
-        if isinstance(reg_model_pure, LinearRegression):
-            sample_x_poly = poly_transformer.fit_transform(sample_x)
         observation_new = model.evaluate(batch_sample, noise=noise)
         observation_y = np.hstack([observation_y, observation_new])
 
         # Fit new model with updated real training set
-        if isinstance(reg_model_pure, LinearRegression):
-            regression_model.fit(sample_x_poly, observation_y)
-        else:
-            regression_model.fit(sample_x, observation_y)
+        regression_model = utils.fit_model(sample_x, observation_y, regression_model, poly_transformer)
 
-        if calculate_test_metrics:
-            if isinstance(reg_model_pure, GPR):
-                mean, std = regression_model.predict(pool,return_std=True)
-            elif isinstance(reg_model_pure, LinearRegression):
-                mean = regression_model.predict(pool_poly)
-            else:
-                mean = regression_model.predict(pool)
-
-            # Calculate and save scores
-            scores_test[i+1,0] = mean_squared_error(y_true, mean)
-            scores_test[i+1,1] = mean_absolute_error(y_true, mean)
-            scores_test[i+1,2] = max_error(y_true, mean)
-
-        if isinstance(reg_model_pure, GPR):
-            mean_train, std_train = regression_model.predict(sample_x,return_std=True)
-        elif isinstance(reg_model_pure, LinearRegression):
-            mean_train = regression_model.predict(sample_x_poly)
-        else:
-            mean_train = regression_model.predict(sample_x)
-
-        scores_train[i+1,0] = mean_squared_error(observation_y, mean_train)
-        scores_train[i+1,1] = mean_absolute_error(observation_y, mean_train)
-        scores_train[i+1,2] = max_error(observation_y, mean_train)
+        #Calculate scores for training set
+        mean, _ = utils.make_prediction(sample_x, regression_model, 
+                                        poly_transformer)
+        scores_train[i+1,...] = utils.calculate_errors(observation_y, mean_train)
         max_value[i+1,0] = np.max(observation_y)
+
+        #Calculate scores for test set
+        if calculate_test_metrics:
+            mean, _ = utils.make_prediction(pool, regression_model, 
+                                            poly_transformer)
+            scores_test[i+1,...] = utils.calculate_errors(y_true, mean)
         
     #transform results to a pandas DataFrame
     if calculate_test_metrics:
@@ -329,7 +259,6 @@ def run_continuous_batch_learning(model,
         results = np.vstack([n_observations, scores_train.T, max_value.T])
         results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
 
-    
     return sample_x, results
 
 
@@ -406,33 +335,23 @@ def run_batch_learning(model,
 
     '''
 
-    reg_model_pure = check_model(regression_model, acquisition_function)
+    reg_model_pure = utils.check_model(regression_model, acquisition_function)
     
     #Set random number generator
     if isinstance(random_state, int) or random_state==None:
         rng = np.random.RandomState(seed=random_state)
 
-    poly_transformer = PolynomialFeatures(degree=poly_degree)
-
-
     #Generate a pool of sample data points
+    dimensions = model.n_features
     if not isinstance(pool, np.ndarray):
-        dimensions = model.n_features
-        x = []
-        for i in range(dimensions):
-            x.append(np.linspace(*lim, 20))
+        pool = utils.generate_pool(dimensions, lim)
 
-        pool = np.meshgrid(*x)
-        pool = np.array(pool).T
-        pool = pool.reshape(len(x[0]**dimensions), dimensions)
-
-    pool_poly = poly_transformer.fit_transform(pool)
+    poly_transformer = PolynomialFeatures(degree=poly_degree)
 
     n_data = len(pool)
     #Number of data points in pool
     if calculate_test_metrics:
         if isinstance(test_set, np.ndarray):
-            test_set_poly = poly_transformer.fit_transform(test_set)
             y_true_test = model.evaluate(test_set, noise = noise)
             extra_test_set = True
         else:
@@ -469,62 +388,39 @@ def run_batch_learning(model,
     else:
         raise Exception('Initializiation method not implemented')
 
+    #Select sampled data from pool
     sample_x = pool[rand_num]
-    sample_x_poly = poly_transformer.fit_transform(sample_x)
     observation_y = model.evaluate(sample_x, noise = noise)
-
     data_indices = rand_num.copy()
+
+    #Fit initial model
+    regression_model = utils.fit_model(sample_x, observation_y, regression_model, poly_transformer)
 
     #To save the MSE
     scores_train = np.zeros((active_learning_steps+1,3))
     max_value = np.zeros((active_learning_steps+1,1))
     n_observations = np.linspace(initial_samples, initial_samples+(active_learning_steps)*batch_size,
                                  active_learning_steps+1)
+    
+    #Save scores for training set
+    mean, std = utils.make_prediction(pool, regression_model, poly_transformer)
+    scores_train[0,...] = utils.calculate_errors(observation_y, mean[data_indices])
+    max_value[0,0] = np.max(observation_y)
+
+    #Save scores for test set
     if calculate_test_metrics:
         scores_test = np.zeros((active_learning_steps+1,3))
 
-    if isinstance(reg_model_pure, LinearRegression):
-        regression_model.fit(sample_x_poly, observation_y)
-    else:
-        regression_model.fit(sample_x, observation_y)
-
-    #Calculate metrics
-    if calculate_test_metrics:
         if extra_test_set == False:
             mask = np.ones(y_true.size, dtype=bool)
             mask[data_indices] = False
             mask_indices = np.where(mask==True)[0]
             test_set = pool[mask_indices]
-            test_set_poly = pool_poly[mask_indices]
             y_true_test = y_true[mask_indices]
 
-        if isinstance(reg_model_pure, GPR):   
-            mean_test, std_test = regression_model.predict(test_set,return_std=True)
-        elif isinstance(reg_model_pure, LinearRegression):
-            mean_test = regression_model.predict(test_set_poly)
-        else:
-            mean_test = regression_model.predict(test_set)
-
-        scores_test[0,0] = mean_squared_error(y_true_test, mean_test)
-        scores_test[0,1] = mean_absolute_error(y_true_test, mean_test)
-        scores_test[0,2] = max_error(y_true_test, mean_test)
+        mean_test, _ = utils.make_prediction(test_set, regression_model, poly_transformer)
+        scores_test[0,...] = utils.calculate_errors(y_true_test, mean_test)
         
-
-    if isinstance(reg_model_pure, GPR):   
-        mean, std = regression_model.predict(pool,return_std=True)
-    elif isinstance(reg_model_pure, LinearRegression):
-        mean = regression_model.predict(pool_poly)
-        std = None
-    else:
-        mean = regression_model.predict(pool)
-        std = None
-
-    #Save scores
-    scores_train[0,0] = mean_squared_error(observation_y, mean[data_indices])
-    scores_train[0,1] = mean_absolute_error(observation_y, mean[data_indices])
-    scores_train[0,2] = max_error(observation_y, mean[data_indices])
-    max_value[0,0] = np.max(observation_y)
-
     
     #Start active learning
     for i in range(active_learning_steps):
@@ -532,23 +428,15 @@ def run_batch_learning(model,
         batch_indices = np.zeros(batch_size, dtype=np.int32)
         estimated_observation_y = observation_y.copy()
         estimated_sample_x = sample_x.copy()
-        if isinstance(reg_model_pure, LinearRegression):
-            estimated_sample_x_poly = sample_x_poly.copy()
         
         for j in range(batch_size):
-
             if j != 0:
-                if isinstance(reg_model_pure, LinearRegression):
-                    regression_model.fit(estimated_sample_x_poly, estimated_observation_y)
-                else:
-                    regression_model.fit(estimated_sample_x, estimated_observation_y)
-                if isinstance(reg_model_pure, GPR):
-                    mean, std = regression_model.predict(pool,return_std=True)
-                elif isinstance(reg_model_pure, LinearRegression):
-                    mean = regression_model.predict(pool_poly)
-                else:
-                    mean = regression_model.predict(pool)
+                regression_model = utils.fit_model(estimated_samplex, estimated_observation_y,
+                                                   regression_model, poly_transformer)
 
+                mean, std = utils.make_prediction(pool, regression_model, poly_transformer)
+
+            #Make masks to ignore already evaluated samples for the acquisition function
             mask = np.ones(pool.shape[0], dtype=bool)
             mask[data_indices] = False
             mask_indices = np.where(mask==True)[0]
@@ -556,19 +444,13 @@ def run_batch_learning(model,
             mask_z = np.ones(pool.shape[0], dtype=np.int32)
             mask_z[data_indices] = 0
 
-            #Optional plotting for debugging
-            #plt.plot(sample_x, observation_y, 'o')
-            #plt.plot(pool, y_true, 'k')
-            #plt.plot(pool, mean)
-            #plt.show()
-
-            #Choose an acquisition function
-
+            #Choose an acquisition function, QBC is extra
             if acquisition_function == 'qbc':
                 models = []
                 for _ in range(alpha):
                     train_index = rng.randint(0,len(estimated_sample_x),len(estimated_sample_x))
                     if isinstance(reg_model_pure, LinearRegression):
+                        estimated_sample_x_poly = poly_transformer(estimaded_sample_x)
                         regression_model.fit(estimated_sample_x_poly[train_index], estimated_observation_y[train_index])
                     else:
                         regression_model.fit(estimated_sample_x[train_index], estimated_observation_y[train_index])
@@ -584,12 +466,12 @@ def run_batch_learning(model,
                     rng)
 
             #Find maximum of acquisition function for non yet evaluated data points
-
             #Avoid to sample already sampled data points
             acquisition_masked = acquisition[mask]
             index = np.where(acquisition_masked==np.max(acquisition_masked))[0]
             index = mask_indices[index]
             
+            #If more than one samples are suited equally well pick one randomly
             if len(index) > 1:
                 ind = rng.randint(0,len(index),1)
                 index = np.array(index[ind])
@@ -597,37 +479,26 @@ def run_batch_learning(model,
                 
             estimated_x_max = pool[index]
             estimated_sample_x = np.vstack([estimated_sample_x, estimated_x_max])
-            if isinstance(reg_model_pure, LinearRegression):
-                estimated_sample_x_poly = poly_transformer.fit_transform(estimated_sample_x)
 
-            #Assume estimated predictions
-            if isinstance(reg_model_pure, GPR):
-                mean_new, std_new = regression_model.predict(pool[index].reshape(1,-1), return_std=True)
-            elif isinstance(reg_model_pure, LinearRegression):
-                new_x_poly = poly_transformer.fit_transform(pool[index].reshape(1,-1))
-                mean_new = regression_model.predict(new_x_poly)
-                std_new = fictive_noise_level
-            else:
-                mean_new = regression_model.predict(pool[index].reshape(1,-1))
-                std_new = fictive_noise_level
-
+            #Update the model
+            mean_new, std_new = utils.make_prediction(pool[index], regression_model, poly_transformer,
+                                                      fictive_noise_level)
             estimated_observation_new = mean_new+rng.normal(0, std_new, size=1)
 
             estimated_observation_y = np.hstack([estimated_observation_y, estimated_observation_new])
             batch_indices[j] = index
 
-        # Updated pool
+        # Updated pool with batch data
         x_max = pool[batch_indices]
         observation_new = model.evaluate(x_max, noise=noise)
         sample_x = np.vstack([sample_x, x_max])
-        if isinstance(reg_model_pure, LinearRegression):
-            sample_x_poly = poly_transformer.fit_transform(sample_x)
         observation_y = np.hstack([observation_y, observation_new])
 
-        if isinstance(reg_model_pure, LinearRegression):
-            regression_model.fit(sample_x_poly, observation_y)
-        else:
-            regression_model.fit(sample_x, observation_y)
+        regression_model = utils.fit_model(sample_x, observation_y, regression_model, poly_transformer)
+
+        mean, std = utils.make_prediction(pool, regression_model, poly_transformer)
+        scores_train[i+1, ...] = utils.calculate_errors(observation_y, mean[data_indices])
+        max_value[i+1,0] = np.max(observation_y)
 
         if calculate_test_metrics:
             if extra_test_set == False:
@@ -635,33 +506,10 @@ def run_batch_learning(model,
                 mask[data_indices] = False
                 mask_indices = np.where(mask==True)[0]
                 test_set = pool[mask_indices]
-                test_set_poly = pool_poly[mask_indices]
                 y_true_test = y_true[mask_indices]
 
-            if isinstance(reg_model_pure, GPR):   
-                mean_test, std_test = regression_model.predict(test_set,return_std=True)
-            elif isinstance(reg_model_pure, LinearRegression):
-                mean_test = regression_model.predict(test_set_poly)
-            else:
-                mean_test = regression_model.predict(test_set)
-
-            scores_test[i+1,0] = mean_squared_error(y_true_test, mean_test)
-            scores_test[i+1,1] = mean_absolute_error(y_true_test, mean_test)
-            scores_test[i+1,2] = max_error(y_true_test, mean_test)
-        
-
-        if isinstance(reg_model_pure, GPR):   
-            mean, std = regression_model.predict(pool,return_std=True)
-        elif isinstance(reg_model_pure, LinearRegression):
-            mean = regression_model.predict(pool_poly)
-        else:
-            mean = regression_model.predict(pool)
-
-        #Save scores
-        scores_train[i+1,0] = mean_squared_error(observation_y, mean[data_indices])
-        scores_train[i+1,1] = mean_absolute_error(observation_y, mean[data_indices])
-        scores_train[i+1,2] = max_error(observation_y, mean[data_indices])
-        max_value[i+1,0] = np.max(observation_y)
+            mean_test, _ = utils.make_prediction(test_set, regression_model, poly_transformer)
+            scores_test[i+1, ...] = utils.calculate_errors(y_true_test, mean_test)
         
     #transform results to a pandas DataFrame
     if calculate_test_metrics:
