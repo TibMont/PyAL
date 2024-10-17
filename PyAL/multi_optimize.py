@@ -3,6 +3,11 @@
 # Version: 0.1
 # License: MIT license
 
+import copy
+import sys
+import os
+import warnings
+
 import numpy as np
 import pandas as pd
 
@@ -10,21 +15,15 @@ from scipy.stats.qmc import LatinHypercube as LHS
 from scipy.stats.qmc import scale
 from scipy.stats import norm
 
-from scipy.optimize import minimize
 
 from sklearn.metrics import mean_squared_error, mean_absolute_error, max_error
-from sklearn.model_selection import cross_validate
 from sklearn.gaussian_process import GaussianProcessRegressor as GPR
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.pipeline import Pipeline
 
-import copy
-from pyswarms.single.global_best import GlobalBestPSO
-
-import sys
-import os
-import warnings
+from PyAL.optimize_step import step_continous_multi
+import PyAL.utils as utils
 
 import logging
 
@@ -35,426 +34,6 @@ if not sys.warnoptions:
     warnings.simplefilter("ignore")
     os.environ["PYTHONWARNINGS"] = ('ignore::ConvergenceWarning')
 
-def conductivity_aggregation_fn(x, delta_beta, uncert=False):
-
-    if len(x.shape) == 1:
-        x = x.reshape(1,-1).T
-
-    #print(x.shape)
-    #print(x)
-    if uncert == False:
-        conductivity = x[0,:] - delta_beta*x[1,:] - x[2,:]*delta_beta**2
-        return conductivity
-
-    else:
-        uncertainty = x[0,:] + delta_beta*x[1,:] + x[2,:]*delta_beta**2
-        return uncertainty
-
-
-
-def GSx_con(x, x_sample):
-
-    if len(x.shape) == 1:
-        x = x.reshape(1,-1)
-
-    n_samples = len(x_sample)
-    n_pool = len(x)
-    min_dist = np.zeros(n_pool)
-    distances = np.zeros((n_pool, n_samples))
-
-    if n_pool == 1:
-        for i in range(n_samples):
-            dist = np.sum((x-x_sample[i])**2)
-            distances[:,i] = dist
-    else:
-        for i in range(n_samples):
-            dist = np.sum((x-x_sample[i])**2, axis=-1)
-            distances[:,i] = dist
-
-    min_dist = np.min(distances, axis=-1)
-
-    return -min_dist
-
-def GSy_con(x, y_sample, model, aggregation_function, poly_x, *args, **kwargs):
-    if len(x.shape) == 1:
-        x = x.reshape(1,-1)
-        y_individual = np.zeros((len(model), 1))
-    else:
-        y_individual = np.zeros((len(model), len(x)))
-    for i in range(len(model)):
-        if isinstance(poly_x, PolynomialFeatures):
-            x_poly = poly_x.fit_transform(x)
-            y_individual[i] = model[i].predict(x_poly)
-        else:
-            y_individual[i] = model[i].predict(x)
-    
-    if len(args) != 0:
-        y = aggregation_function(y_individual, *args)
-    else:
-        y = aggregation_function(y_individual, **kwargs)
-
-    n_samples = len(y_sample)
-    #print('N samples')
-    #print(n_samples)
-    #print('y samples')
-    #print(y_sample)
-    #print('x')
-    #print(x)
-    #print('y')
-    #print(y)
-    n_pool = len(x)
-    min_dist = np.zeros(n_pool)
-    distances = np.zeros((n_pool, n_samples))
-
-    if n_pool == 1:
-        for i in range(n_samples):
-            dist = (y-y_sample[i])**2
-            distances[:,i] = dist
-    else:
-        for i in range(n_samples):
-            dist = (y-y_sample[i])**2
-            distances[:,i] = dist
-
-    min_dist = np.min(distances, axis=-1)
-    #print('Dist')
-    #print(distances)
-    #print('Min dist')
-    #print(min_dist)
-    #print()
-    return -min_dist
-
-def iGS_con(x, x_sample, y_sample, model, aggregation_function, poly_x=None, *args, **kwargs):
-    gsx = GSx_con(x,x_sample)
-    gsy = GSy_con(x, y_sample, model, aggregation_function, poly_x, *args, **kwargs)
-
-    min_dist = gsx*gsy
-    return -min_dist
-    
-def IDEAL_con_old(x, x_samples, model, aggregation_function, alpha=1, *args, **kwargs):
-    #print(grid.shape)
-    #print(grid)
-    #print(uncertainty)
-    if len(x.shape) == 1:
-        n_pool = 1
-        x = x.reshape(1,-1)
-    else:
-        n_pool = len(x)
-    n_samples = len(x_samples)
-
-    w = np.zeros([n_pool, n_samples])
-    SiD = np.zeros(n_pool)
-    Z = np.zeros(n_pool)
-    SW = np.ones(n_pool)
-
-    for i in range(n_samples):
-        dist = np.sum((x-x_samples[i])**2, axis=-1)
-        w[:,i]= np.exp(-dist)/dist
-        SiD[:] += 1/dist
-
-    Z = np.arctan(1/SiD)*2/np.pi
-
-    SW = np.sum(w, axis=1)
-
-    v = w/SW.reshape(-1,1)
-
-    uncertainty_individual = np.zeros((len(model), n_pool))
-    for i in range(len(model)):
-        _, uncertainty_individual[i] = model[i].predict(x, return_std=True)
-
-    if len(args) != 0:
-        uncertainty = aggregation_function(uncertainty_individual, uncert=True, *args)
-    else:
-        uncertainty = aggregation_function(uncertainty_individual, uncert=True, **kwargs)
-
-    vk = np.sum(v*uncertainty.reshape(-1,1), axis=1)
-    ideal = vk+alpha*Z
-    o = np.isnan(ideal)
-    ideal[o] = 0
-    return -ideal
-
-def IDEAL_con(x, x_samples, model, y_true, lim, aggregation_function, alpha=1, poly_x=None, tol=1e-8, *args, **kwargs):
-    if len(x.shape) == 1:
-        n_pool = 1
-        x = x.reshape(1,-1)
-    else:
-        n_pool = len(x)
-
-    n_samples = len(x_samples)
-    
-    xmin = np.array(lim[0])
-    xmax = np.array(lim[1])
-    x_scaled = 2/(xmax-xmin) * (x - (xmax+xmin)/2)
-    x_samples = 2/(xmax-xmin) * (x_samples - (xmax+xmin)/2)
-
-    w = np.zeros([n_pool, n_samples])
-    SiD = np.zeros(n_pool)
-    Z = np.zeros(n_pool)
-    SW = np.ones(n_pool)
-
-    mask_idx = []
-    identical = []
-
-    for i in range(n_samples):
-        dist = np.sum((x_scaled-x_samples[i])**2, axis=-1)
-
-        mask = np.where(dist>tol)
-        mask_rev = np.where(dist<=tol)[0]
-        if len(mask_rev) > 0:
-            for m in mask_rev:
-                mask_idx.append(m)
-            identical.append(i)
-
-        w[:,i] = np.exp(-dist)/dist
-        SiD+= 1/dist
-
-    Z = np.arctan(1/SiD)*2/np.pi
-    SW = np.sum(w[:,0:n_samples], axis=1)
-
-    mask_idx = np.array(mask_idx, dtype=np.int32)
-    identical = np.array(identical, dtype=np.int32)
-    if len(mask_idx)>0:
-
-        Z[mask_idx] = 0
-
-    mean_individual = np.zeros((len(model), n_pool))
-
-    for i in range(len(model)):
-        if isinstance(poly_x, PolynomialFeatures):
-            x_poly = poly_x.fit_transform(x)
-            mean_individual[i,...] = model[i].predict(x_poly)
-        else:
-            mean_individual[i,...] = model[i].predict(x)
-    
-    if len(args) != 0:
-        mean = aggregation_function(mean_individual, *args)
-    else:
-        mean = aggregation_function(mean_individual, **kwargs)
-
-    if len(mean.shape) == 1:
-        mean = mean.reshape(-1,1)
-    Yhat = mean
-
-    ff = np.zeros(n_pool)
-    ny = mean.shape[1]
-
-    Ymax = np.max(y_true)
-    Ymin = np.min(y_true)
-    Ymax += 1.e-10
-    Yscale = (Ymax - Ymin) / 2.
-    dY2 = (2 * Yscale) ** 2
-
-    for i in range(ny):
-        vk = w / SW.reshape(-1, 1)
-        vk[mask_idx] = 0
-
-        ff += np.sum((vk) * (
-            (Yhat[:,i,np.newaxis] - y_true) ** 2), axis=1) / dY2
-    
-    ideal = ff+alpha*Z
-
-    return -ideal
-
-
-def UCB_con(x, model, aggregation_function, alpha=0.5, *args, **kwargs):
-    if len(x.shape) == 1:
-        x = x.reshape(1,-1)
-        n_pool = 1
-    else:
-        n_pool = len(x)
-
-    mean_individual = np.zeros((len(model), n_pool))
-    uncertainty_individual = np.zeros((len(model), n_pool))
-    for i in range(len(model)):
-        mean_individual[i], uncertainty_individual[i] = model[i].predict(x, return_std=True)
-
-    if len(args) != 0:
-        uncertainty = aggregation_function(uncertainty_individual, uncert=True, *args)
-        mean = aggregation_function(mean_individual, *args)
-    else:
-        uncertainty = aggregation_function(uncertainty_individual, uncert=True, **kwargs)   
-        mean = aggregation_function(mean_individual, **kwargs)
-
-    ucb = mean+alpha*uncertainty
-    return -ucb
-
-def POI_con(x, model, aggregation_function, opt, alpha, max=True, *args, **kwargs):
-    if len(x.shape) == 1:
-        x = x.reshape(1,-1)
-        n_pool = 1
-    else:
-        n_pool = len(x)
-
-    
-    mean_individual = np.zeros((len(model), n_pool))
-    uncertainty_individual = np.zeros((len(model), n_pool))
-    for i in range(len(model)):
-        mean_individual[i], uncertainty_individual[i] = model[i].predict(x, return_std=True)
-
-    if len(args) != 0:
-        uncertainty = aggregation_function(uncertainty_individual, uncert=True, *args)
-        mean = aggregation_function(mean_individual, *args)
-    else:
-        uncertainty = aggregation_function(uncertainty_individual, uncert=True, **kwargs)
-        mean = aggregation_function(mean_individual, **kwargs)
-
-    if max==False:
-        f_min = opt
-        probs = norm.cdf((f_min-mean-alpha)/(uncertainty+1e-9))
-    else:
-        f_max = opt
-        probs = norm.cdf((mean-f_max-alpha)/(uncertainty+1e-9))
-    return -probs
-
-def EI_con(x, model, aggregation_function, opt, alpha=0.5, max=True, *args, **kwargs):
-    if len(x.shape) == 1:
-        x = x.reshape(1,-1)
-        n_pool = 1
-    else:
-        n_pool = len(x)
-    
-    mean_individual = np.zeros((len(model), n_pool))
-    uncertainty_individual = np.zeros((len(model), n_pool))
-    for i in range(len(model)):
-        mean_individual[i], uncertainty_individual[i] = model[i].predict(x, return_std=True)
-
-    if len(args) != 0:
-        uncertainty = aggregation_function(uncertainty_individual, uncert=True, *args)
-        mean = aggregation_function(mean_individual, *args)
-    else:
-        uncertainty = aggregation_function(uncertainty_individual, uncert=True, **kwargs)
-        mean = aggregation_function(mean_individual, **kwargs)
-
-    if max==False:
-        f_min = opt
-        cdf = norm.cdf((f_min-mean)/uncertainty)
-        pdf = norm.pdf((f_min-mean)/uncertainty)
-        ei = alpha*(f_min-mean)*cdf + (1-alpha)*uncertainty*pdf
-    else:
-        f_max = opt
-        cdf = norm.cdf((mean-f_max)/uncertainty)
-        pdf = norm.pdf((mean-f_max)/uncertainty)
-        ei = alpha*(mean-f_max)*cdf + (1-alpha)*uncertainty*pdf
-    return -ei
-
-def QBC_con(x, models, aggregation_function, poly_x, *args, **kwargs):
-    if len(x.shape) == 1:
-        x = x.reshape(1,-1)
-        n_pool = 1
-    else:
-        n_pool = len(x)
-
-    mean_qbc_individual = np.zeros((len(models), len(models[0]), n_pool))
-    #bootstrapping approach to train models
-    for i in range(len(models)):
-        model = models[i]
-        for j, mod in enumerate(model):
-            if isinstance(poly_x, PolynomialFeatures):
-                x_poly = poly_x.fit_transform(x)
-                m = mod.predict(x_poly)
-            else:
-                m = mod.predict(x)
-            mean_qbc_individual[i,j,...] += m
-
-    mean_qbc = np.zeros((len(models[0]), n_pool))
-
-    for i in range(mean_qbc_individual.shape[1]):
-        if len(args) != 0:
-            mean_qbc[i] = aggregation_function(mean_qbc_individual[:,i,:], *args)
-        else:
-            mean_qbc[i] = aggregation_function(mean_qbc_individual[:,i,:], **kwargs)
-
-    result = np.zeros(n_pool)
-    for i in range(n_pool):
-        result[i] = np.sum( mean_qbc[:,i] - np.mean(mean_qbc[:,i]) )
-
-    return -result
-
-
-def UIDAL_con(x, x_samples, model, aggregation_function, alpha=1, *args, **kwargs):
-    #print(grid.shape)
-    #print(grid)
-    #print(uncertainty)
-    if len(x.shape) == 1:
-        n_pool = 1
-        x = x.reshape(1,-1)
-    else:
-        n_pool = len(x)
-    n_samples = len(x_samples)
-
-    w = np.zeros([n_pool, n_samples])
-    SiD = np.zeros(n_pool)
-    Z = np.zeros(n_pool)
-    SW = np.ones(n_pool)
-
-    for i in range(n_samples):
-        dist = np.sum((x-x_samples[i])**2, axis=-1)
-        w[:,i]= np.exp(-dist)/dist
-        SiD[:] += 1/dist
-
-    Z = np.arctan(1/SiD)*2/np.pi
-
-    SW = np.sum(w, axis=1)
-
-    v = w/SW.reshape(-1,1)
-
-    individual_uncertainty = np.zeros((len(model), n_pool))
-
-    for i in range(len(model)):
-        _, u = model[i].predict(x, return_std=True)
-        individual_uncertainty[i,...] = u
-
-    if len(args) != 0:
-        uncertainty = aggregation_function(individual_uncertainty, uncert=True,  *args)
-    else:
-        uncertainty = aggregation_function(individual_uncertainty, uncert=True, **kwargs)
-    
-    vk = np.sum(v*uncertainty.reshape(-1,1), axis=1)
-    ideal = vk+alpha*Z
-    o = np.isnan(ideal)
-    ideal[o] = 0
-    return -ideal   
-
-def SGSx_con(x, x_sample, model, aggregation_function, alpha=0.5, *args, **kwargs):
-    if len(x.shape) == 1:
-        n_pool = 1
-        x = x.reshape(1,-1)
-    else:
-        n_pool = len(x)
-    gsx = GSx_con(x,x_sample)
-
-    individual_std = np.zeros((len(model), n_pool))
-
-    for i in range(len(model)):
-        m, s = model[i].predict(x, return_std=True)
-        individual_std[i,...] = s
-
-    if len(args) != 0:
-        std = aggregation_function(individual_std, uncert=True,  *args)
-    else:
-        std = aggregation_function(individual_std, uncert=True, **kwargs)
-    
-    sgsx = np.power(std,alpha)*np.power(-gsx,(1-alpha))
-    return -sgsx 
-
-def std_con(x, model, aggregation_function, *args, **kwargs):
-    if len(x.shape) == 1:
-        n_pool = 1
-        x = x.reshape(1,-1)
-    else:
-        n_pool = len(x)
-
-    individual_std = np.zeros((len(model), n_pool))
-
-    for i in range(len(model)):
-        m, s = model[i].predict(x, return_std=True)
-        individual_std[i,...] = s
-
-    if len(args) != 0:
-        std = aggregation_function(individual_std, uncert=True,  *args)
-    else:
-        std = aggregation_function(individual_std, uncert=True, **kwargs)
-
-    return -std
 
 ########################################################################################################
 
@@ -476,6 +55,7 @@ def run_continuous_batch_learning_multi(models,
            pso_options = None,
            fictive_noise_level=0,
            poly_degree = 3,
+           custom_acfn_input = {},
            calculate_test_metrics = True,
            verbose=True,
            single_update = False,
@@ -568,44 +148,21 @@ def run_continuous_batch_learning_multi(models,
     else:
         regression_models = [copy.deepcopy(regression_models) for i in range(len(models))]
     
+    reg_models_pure = []
     for regression_model in regression_models:
-        if isinstance(regression_model, LinearRegression):
-            if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
-                print('Acquisition function is not implemented for Linear Regression: {}'.format(acquisition_function))
-                exit(1)
-        elif not isinstance(regression_model, GPR):
-            if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc']:
-                print('Acquisition function is not implemented for Non-GPR models: {}'.format(acquisition_function))
-                exit(1)
-        else:
-            if acquisition_function not in ['random', 'GSx', 'GSy', 'iGS', 'ideal', 'qbc', 'ei', 'ucb', 'poi', 'std', 'uidal', 'SGSx']:
-                print('Acquisition function not implemented: {}'.format(acquisition_function))
-                exit(1)
+        reg_models_pure.append(utils.check_model(regression_model, acquisition_function))
 
     #Set random number generator
-    rng = np.random.RandomState(seed=random_state)
+    if isinstance(random_state, int) or random_state==None:
+        rng = np.random.RandomState(seed=random_state)
+    else:
+        rng = random_state
 
     #Set polynomial feature transformer
     poly_transformer = PolynomialFeatures(degree=poly_degree)
 
     dimensions = models[0].n_features
     n_models = len(models)
-
-    #Generate a pool of sample data points for testing
-    if calculate_test_metrics == True:
-        logger.info('Test metrics will be calculated.')
-        if not isinstance(pool, np.ndarray):
-            x = []
-            for i in range(dimensions):
-                x.append(np.linspace(*lim, 10))
-
-            pool = np.meshgrid(*x)
-            pool = np.array(pool).T
-            pool = pool.reshape(len(x[0]**dimensions), dimensions)
-
-        pool_poly = poly_transformer.fit_transform(pool)
-    else:
-        logger.info('Test metrics will not be calculated.')
 
     #Check if noise is int or float, noise will be applied to every model individually
     if isinstance(noise, int) or isinstance(noise, float):
@@ -617,7 +174,12 @@ def run_continuous_batch_learning_multi(models,
         logger.info('Noise converted: ')
         logger.info('from {} to {}'.format(noise_old, noise))
 
-    if calculate_test_metrics: 
+    #Generate a pool of sample data points for testing
+    if calculate_test_metrics:
+        logger.info('Test metrics will be calculated.')
+        if not isinstance(pool, np.ndarray):
+            pool = utils.generate_pool(dimensions, lim)
+    
         #Number of data points in pool
         n_data = len(pool)
         y_true = np.zeros((n_models, n_data))
@@ -626,8 +188,11 @@ def run_continuous_batch_learning_multi(models,
             y_true[i, ...] = model.evaluate(pool, noise = noise[i])
 
         y_true_aggregated = aggregation_function(y_true, **kwargs)
+    
+    else:
+        logger.info('Test metrics will not be calculated.')
 
-    sampler = LHS(d=dimensions)
+    sampler = LHS(d=dimensions, seed=random_state)
     #Generate initial data
     logger.info('Initialization method: {}'.format(initialization))
     if initialization == 'random':
@@ -651,10 +216,11 @@ def run_continuous_batch_learning_multi(models,
             lim=lim,
             alpha=alpha,
             n_jobs=n_jobs,
-            random_state=random_state,
+            random_state=rng,
             initialization='random',
             pso_options=pso_options,
             poly_degree = poly_degree,
+            custom_acfn_input = custom_acfn_input,
             calculate_test_metrics=False,
             verbose=False,
             **kwargs
@@ -683,54 +249,39 @@ def run_continuous_batch_learning_multi(models,
     n_observations = np.linspace(initial_samples, initial_samples+(active_learning_steps)*batch_size,
                             active_learning_steps+1)
     
+    scores_train_individual = np.zeros((n_models, active_learning_steps+1,3))
+    max_value_individual = np.zeros((n_models, active_learning_steps+1,1))
+    
+    mean_train = np.zeros((n_models, len(sample_x)))
+    std_train = np.zeros((n_models, len(sample_x)))
+    for i in range(n_models):
+        regression_models[i] = utils.fit_model(sample_x, observation_y[i], 
+                                               regression_models[i], poly_transformer)
+        #Initial model predictions for training set
+        mean_train[i,...], std_train[i,...] = utils.make_prediction(sample_x, regression_models[i], 
+                                                                    poly_transformer)
+        scores_train_individual[i,0,...] = utils.calculate_errors(observation_y[i], mean_train[i])
+        max_value_individual[i,0,0] = np.max(observation_y[i])
+    
+    mean_train_aggregated = aggregation_function(mean_train, **kwargs)
+    scores_train[0,...] = utils.calculate_errors(observation_y_aggregated.flatten(), mean_train_aggregated.flatten())
+    max_value[0,0] = np.max(observation_y_aggregated)
+    
     if calculate_test_metrics:
-        #To save the metrics
         scores_test = np.zeros((active_learning_steps+1,3))
+        scores_test_individual = np.zeros((n_models, active_learning_steps+1,3))
 
-    #Fit initial model
-    if calculate_test_metrics:
         mean = np.zeros((n_models, len(pool)))
         std = np.zeros((n_models, len(pool)))
 
-    mean_train = np.zeros((n_models, len(sample_x)))
-    std_train = np.zeros((n_models, len(sample_x)))
-
-    for i in range(n_models):
-        if isinstance(regression_models[i], LinearRegression):
-            sample_x_poly = poly_transformer.fit_transform(sample_x)
-            regression_models[i].fit(sample_x_poly, observation_y[i])
-        else:
-            regression_models[i].fit(sample_x, observation_y[i])
-
-        #Initial model predictions for test set
-        if calculate_test_metrics:  
-            if isinstance(regression_models[i], GPR):
-                mean[i,...], std[i,...] = regression_models[i].predict(pool,return_std=True)
-            elif isinstance(regression_models[i], LinearRegression):
-                mean[i,...] = regression_models[i].predict(pool_poly)
-            else:
-                mean[i,...] = regression_models[i].predict(pool)
-
-        #Initial model predictions for training set
-        if isinstance(regression_models[i], GPR):
-            mean_train[i,...], std_train[i,...] = regression_models[i].predict(sample_x,return_std=True)
-        elif isinstance(regression_models[i], LinearRegression):
-            mean_train[i,...] = regression_models[i].predict(sample_x_poly)
-        else:
-            mean_train[i,...] = regression_models[i].predict(sample_x)
-    
-    #Save scores
-    if calculate_test_metrics:
+        for i in range(n_models):
+            mean[i,...], std[i,...] = utils.make_prediction(pool, regression_models[i],
+                                                            poly_transformer)
+            scores_test_individual[i,0,...] = utils.calculate_errors(y_true[i], mean[i])
+            
+        #Save scores
         mean_aggregated = aggregation_function(mean, **kwargs)
-        scores_test[0,0] = mean_squared_error(y_true_aggregated, mean_aggregated)
-        scores_test[0,1] = mean_absolute_error(y_true_aggregated, mean_aggregated)
-        scores_test[0,2] = max_error(y_true_aggregated, mean_aggregated)
-
-    mean_train_aggregated = aggregation_function(mean_train, **kwargs)
-    scores_train[0,0] = mean_squared_error(observation_y_aggregated, mean_train_aggregated)
-    scores_train[0,1] = mean_absolute_error(observation_y_aggregated, mean_train_aggregated)
-    scores_train[0,2] = max_error(observation_y_aggregated, mean_train_aggregated)
-    max_value[0,0] = np.max(observation_y_aggregated)
+        scores_test[0,...] = utils.calculate_errors(y_true_aggregated.flatten(), mean_aggregated.flatten())
 
 
     #Active Learning loop starts here
@@ -738,7 +289,6 @@ def run_continuous_batch_learning_multi(models,
     logger.info('Start Active Learning')
     logger.info('Optimization method: {}'.format(opt_method))
     logger.info('Acquisition function: {}'.format(acquisition_function))
-
 
     #Start active learning
     for a in range(active_learning_steps):
@@ -749,178 +299,41 @@ def run_continuous_batch_learning_multi(models,
         estimated_observation_y = observation_y.copy()
         estimated_sample_x = sample_x.copy()
         estimated_observation_y_aggregated = observation_y_aggregated.copy()
-        for regression_model in regression_models:
-            if isinstance(regression_model, LinearRegression):
-                estimated_sample_x_poly = sample_x_poly.copy()
         
         for j in range(batch_size):
-
             #For the first sample in a batch we can use the model with which we evaluated the scores
             if j != 0:
-                if calculate_test_metrics:
-                    mean = np.zeros((n_models, len(pool)))
-                    std = np.zeros((n_models, len(pool)))
-
+                #Fit models
                 for i in range(n_models):
-                    if isinstance(regression_model, LinearRegression):
-                        regression_models[i].fit(estimated_sample_x_poly, estimated_observation_y[i])
-                    else:
-                        regression_models[i].fit(estimated_sample_x, estimated_observation_y[i])
-                    #mean[i, ...], std[i, ...] = regression_model.predict(pool,return_std=True)
+                    regression_models[i] = utils.fit_model(estimated_sample_x, estimated_observation_y[i],
+                                                           regression_models[i], poly_transformer)
 
-                #mean_aggregated = aggregation_function(mean, **kwargs)
 
-            #Choose from optimization routines
-            #TODO: enable more customizability of parameters for optimization routines
-                        
-            if isinstance(regression_model, LinearRegression):
-                poly_x = poly_transformer
-            else:
-                poly_x = None
-
-            if acquisition_function == 'random':
-                x0_unscaled = sampler.random(1)[0]
-                x0 = scale(x0_unscaled.reshape(1,-1), *lim).reshape(dimensions)
-                new_x = x0
-
-            elif opt_method == 'scipy':
-                lim_t = np.array(lim).T
-                x0_unscaled = sampler.random(1)[0]
-                x0 = scale(x0_unscaled.reshape(1,-1), *lim).reshape(dimensions)
-                
-                
-                optargs = kwargs.values()
-                
-                #Check for the acquisition functions
-                #TODO: implement custom acquisition function
-                if acquisition_function == 'ei':
-                    res = minimize(EI_con, x0=x0, args=(regression_models, aggregation_function, np.max(estimated_observation_y_aggregated), alpha, True, *optargs), 
-                                bounds=lim_t)
-                elif acquisition_function == 'poi':
-                    res = minimize(POI_con, x0=x0, args=(regression_models, aggregation_function, np.max(estimated_observation_y_aggregated), alpha, True, *optargs), 
-                                bounds=lim_t)
-                elif acquisition_function == 'ucb':
-                    res = minimize(UCB_con, x0=x0, args=(regression_models, aggregation_function, alpha, *optargs), 
-                                bounds=lim_t)
-                elif acquisition_function == 'ideal':
-                    res = minimize(IDEAL_con, x0=x0, args=(estimated_sample_x, regression_models, estimated_observation_y_aggregated, lim, aggregation_function, alpha, poly_x, *optargs), 
-                                bounds=lim_t)
-                elif acquisition_function == 'uidal':
-                    res = minimize(UIDAL_con, x0=x0, args=(estimated_sample_x, regression_models, aggregation_function, alpha, *optargs), 
-                                bounds=lim_t)
-                elif acquisition_function == 'std':
-                    res = minimize(std_con, x0=x0, args=(regression_models, aggregation_function, *optargs), 
-                                bounds=lim_t)
-                
-                elif acquisition_function == 'GSx':
-                    res = minimize(GSx_con, x0=x0, args=(estimated_sample_x),
-                            bounds=lim_t)
-                elif acquisition_function == 'GSy':
-                    res = minimize(GSy_con, x0=x0, args=(estimated_observation_y_aggregated, regression_models, aggregation_function, poly_x, *optargs),
-                            bounds=lim_t)
-                elif acquisition_function == 'iGS':
-                    res = minimize(iGS_con, x0=x0, args=(estimated_sample_x, estimated_observation_y_aggregated, regression_models, aggregation_function, poly_x, *optargs),
-                            bounds=lim_t)
-                elif acquisition_function == 'SGSx':
-                    res = minimize(SGSx_con, x0=x0, args=(estimated_sample_x, regression_models, aggregation_function, alpha, *optargs),
-                            bounds=lim_t)    
-
-                elif acquisition_function == 'qbc':
-                    S_models = []
-                    for i in range(n_models):
-                        alpha_models = []
-                        for _ in range(alpha):
-                            train_index = rng.randint(0,len(estimated_sample_x),len(estimated_sample_x))
-                            if isinstance(regression_models[i], LinearRegression):
-                                regression_models[i].fit(estimated_sample_x_poly[train_index], estimated_observation_y[i][train_index])
-                            else:
-                                regression_models[i].fit(estimated_sample_x[train_index], estimated_observation_y[i][train_index])
-                            alpha_models.append(copy.deepcopy(regression_models[i]))
-                        S_models.append(alpha_models)
-                    res = minimize(QBC_con, x0=x0, args=(S_models, aggregation_function, poly_x, *optargs),
-                            bounds=lim_t)
+            for i in range(n_models):        
+                if isinstance(reg_models_pure[i], LinearRegression):
+                    poly_x = poly_transformer
                 else:
-                    raise Exception('Acquisition function not implemented')
-            
-                new_x = res.x
+                    poly_x = None
 
-            #Simple Particle Swarm Optimization
-            #TODO: enable to customly choose hyperparameters
-            elif opt_method == 'PSO':
-                if not isinstance(pso_options, dict):
-                    pso_options = {'c1': 0.5, 'c2': 0.3, 'w': 0.9, 'p':dimensions*10, 'i':200}
-                else:
-                    dict_keys = pso_options.keys()
-                    if 'c1' not in dict_keys  or 'c2' not in dict_keys or 'w' not in dict_keys or 'p' not in dict_keys or 'i' not in dict_keys:
-                        raise Exception('c1, c2, w, p and i keys must be in pso_options.')
-                n_particles = int(pso_options['p'])
-                n_iters = int(pso_options['i'])
-
-                lb = lim[0]
-                ub = lim[1]
-                bounds = [lb,ub]
-                optimizer = GlobalBestPSO(n_particles=30, dimensions=dimensions, options=pso_options, 
-                                    bounds=bounds)
-                if acquisition_function == 'ei':
-                    cost, new_x = optimizer.optimize(EI_con, iters=200, verbose=False, n_processes=n_jobs, 
-                                                     model=regression_models, aggregation_function=aggregation_function,
-                                                     opt=np.max(estimated_observation_y_aggregated), alpha=alpha, **kwargs)
-                elif acquisition_function == 'poi':
-                    cost, new_x = optimizer.optimize(POI_con, iters=200, verbose=False, n_processes=n_jobs,
-                                                     model=regression_models, aggregation_function=aggregation_function,
-                                                     opt=np.max(estimated_observation_y_aggregated), alpha=alpha, **kwargs)
-                elif acquisition_function == 'ucb':
-                    cost, new_x = optimizer.optimize(UCB_con, iters=200, verbose=False, n_processes=n_jobs,
-                                                     model=regression_models, aggregation_function=aggregation_function, 
-                                                     alpha=alpha, **kwargs)
-                elif acquisition_function == 'ideal':
-                    cost, new_x = optimizer.optimize(IDEAL_con, iters=200, verbose=False, n_processes=n_jobs,
-                                                     x_samples=estimated_sample_x,
-                                                    model=regression_models, y_true=estimated_observation_y_aggregated, lim=lim, aggregation_function=aggregation_function,
-                                                    alpha=alpha, poly_x=poly_x, **kwargs)
-                    
-                elif acquisition_function == 'uidal':
-                    cost, new_x = optimizer.optimize(UIDAL_con, iters=n_iters, verbose=False, n_processes=n_jobs,
-                                                     x_samples=estimated_sample_x,
-                                                    model=regression_models, aggregation_function=aggregation_function, alpha=alpha, **kwargs)
-                elif acquisition_function == 'std':
-                    cost, new_x = optimizer.optimize(std_con, iters=n_iters, verbose=False, n_processes=n_jobs,
-                                                    model=regression_models, aggregation_function=aggregation_function, **kwargs)
-                    
-                elif acquisition_function == 'GSx':
-                    cost, new_x = optimizer.optimize(GSx_con, iters=200, verbose=False, n_processes=n_jobs,
-                                                     x_sample=estimated_sample_x)
-                elif acquisition_function == 'GSy':
-                    cost, new_x = optimizer.optimize(GSy_con, iters=200, verbose=False, n_processes=n_jobs,
-                                                     y_sample=estimated_observation_y_aggregated,
-                                                     model = regression_models, aggregation_function=aggregation_function, poly_x = poly_x, **kwargs)
-                elif acquisition_function == 'iGS':
-                    cost, new_x = optimizer.optimize(iGS_con, iters=200, verbose=False, n_processes=n_jobs,
-                                                     x_sample=estimated_sample_x,
-                                                     y_sample=estimated_observation_y_aggregated, model=regression_models, 
-                                                     aggregation_function=aggregation_function, poly_x = poly_x, **kwargs)
-                elif acquisition_function == 'SGSx':
-                    cost, new_x = optimizer.optimize(SGSx_con, iters=n_iters, verbose=False, n_processes=n_jobs,
-                                                     x_sample=estimated_sample_x, model=regression_models, aggregation_function=aggregation_function, alpha=alpha, **kwargs)
-                elif acquisition_function == 'qbc':
-                    S_models = []
-                    for i in range(n_models):
-                        alpha_models = []
-                        for _ in range(alpha):
-                            train_index = rng.randint(0,len(estimated_sample_x),len(estimated_sample_x))
-                            if isinstance(regression_models[i], LinearRegression):
-                                regression_models[i].fit(estimated_sample_x_poly[train_index], estimated_observation_y[i][train_index])
-                            else:
-                                regression_models[i].fit(estimated_sample_x[train_index], estimated_observation_y[i][train_index])
-                            alpha_models.append(copy.deepcopy(regression_models[i]))
-                        S_models.append(alpha_models)
-                    cost, new_x = optimizer.optimize(QBC_con, iters=200, verbose=False, n_processes=n_jobs,
-                                                     models=S_models, aggregation_function=aggregation_function, poly_x = poly_x, **kwargs)
-                else:
-                    raise Exception('Acquisition function not implemented')
-                
-            else:
-                raise Exception('Optimization method not implemented')
+            new_x, _ = step_continous_multi(
+                    acquisition_function, 
+                    opt_method, 
+                    regression_models, 
+                    aggregation_function,
+                    estimated_observation_y,
+                    estimated_observation_y_aggregated, 
+                    estimated_sample_x,
+                    custom_acfn_input,
+                    alpha, 
+                    sampler, 
+                    lim,
+                    dimensions, 
+                    poly_x,
+                    n_jobs,
+                    pso_options,
+                    rng,
+                    n_models,
+                    **kwargs)
 
             #Assume estimated predictions
 
@@ -929,25 +342,14 @@ def run_continuous_batch_learning_multi(models,
             estimated_observation_new = np.zeros((n_models, len(new_x.reshape(1,-1))))
 
             for i in range(n_models):
-                if isinstance(regression_models[i], GPR):
-                    mean_new[i,...], std_new[i,...] = regression_models[i].predict(new_x.reshape(1,-1), return_std=True)
-                elif isinstance(regression_models[i], LinearRegression):
-                    new_x_poly = poly_transformer.fit_transform(new_x.reshape(1,-1))
-                    mean_new[i,...] = regression_models[i].predict(new_x_poly)
-                    std_new[i,...] = fictive_noise_level
-                else:
-                    mean_new[i,...] = regression_models[i].predict(new_x.reshape(1,-1))
-                    std_new[i,...] = fictive_noise_level
+                mean_new[i,...], std_new[i,...] = utils.make_prediction(new_x, regression_models[i],
+                                                                        poly_transformer, fictive_noise_level)
                 estimated_observation_new[i,...] = mean_new[i,]+rng.normal(0, std_new[i], size=1)
             
             estimated_observation_new_aggregated = aggregation_function(estimated_observation_new, **kwargs)
 
-            
             #Store the new estimated observations
             estimated_sample_x = np.vstack([estimated_sample_x, new_x])
-            for regression_model in regression_models:
-                if isinstance(regression_model, LinearRegression):
-                    estimated_sample_x_poly = poly_transformer.fit_transform(estimated_sample_x)
             estimated_observation_y = np.hstack([estimated_observation_y, estimated_observation_new])
             estimated_observation_y_aggregated = np.hstack([estimated_observation_y_aggregated, 
                                                             estimated_observation_new_aggregated])
@@ -960,19 +362,22 @@ def run_continuous_batch_learning_multi(models,
         sample_x = np.vstack([sample_x, batch_sample])
 
         if single_update:
-            #transform results to a pandas DataFrame
             if calculate_test_metrics:
-                results = np.hstack([n_observations[0], scores_train[0].T, scores_test[0].T, max_value[0].T]).reshape(1,-1)
-                results = pd.DataFrame(results, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
+                result_dict = {}
+                result_dict['aggregated'] = utils.results_to_df(np.array([n_observations[0]]), scores_train[0], 
+                                                                max_value[0], scores_test[0], single_update=True)
+                for i in range(n_models):
+                    result_dict['model_'+str(i)] = utils.results_to_df(n_observations[0], scores_train_individual[i,0], 
+                                                                       max_value_individual[i,0], scores_test_individual[i,0],
+                                                                       single_update=True)
             else:
-                results = np.hstack([n_observations[0], scores_train[0].T, max_value[0].T]).reshape(1,-1)
-                results = pd.DataFrame(results, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
-            
-            return sample_x, observation_y, results
-
-        for regression_model in regression_models:
-            if isinstance(regression_model, LinearRegression):
-                sample_x_poly = poly_transformer.fit_transform(sample_x)
+                result_dict = {}
+                result_dict['aggregated'] = utils.results_to_df(np.array([n_observations[0]]), scores_train[0], 
+                                                                max_value[0], single_update=True)
+                for i in range(n_models):
+                    result_dict['model_'+str(i)] = utils.results_to_df(n_observations[0], scores_train_individual[i,0], 
+                                                                       max_value_individual[i,0], single_update=True)
+            return sample_x, result_dict
 
         observation_new = np.zeros((n_models, len(batch_sample)))
         for i in range(n_models):
@@ -984,36 +389,21 @@ def run_continuous_batch_learning_multi(models,
         observation_y_aggregated = np.hstack([observation_y_aggregated, observation_new_aggregated])
 
         # Fit new model with updated real training set
-        if calculate_test_metrics:
-            mean = np.zeros((n_models, len(pool)))
-            std = np.zeros((n_models, len(pool)))
-
         mean_train = np.zeros((n_models, len(sample_x)))
         std_train = np.zeros((n_models, len(sample_x)))
 
         #Calculate metrics
         if verbose: print('Active learning step: {}'.format(a))
+
         for i in range(n_models):
-            if isinstance(regression_models[i], LinearRegression):
-                regression_models[i].fit(sample_x_poly, observation_y[i])
-            else:
-                regression_models[i].fit(sample_x, observation_y[i])
-
-            if calculate_test_metrics:
-                if isinstance(regression_models[i], GPR):
-                    mean[i,...], std[i,...] = regression_models[i].predict(pool,return_std=True)
-                elif isinstance(regression_models[i], LinearRegression):
-                    mean[i,...] = regression_models[i].predict(pool_poly)
-                else:
-                    mean[i,...] = regression_models[i].predict(pool)
-
-            if isinstance(regression_models[i], GPR):
-                mean_train[i,...], std_train[i,...] = regression_models[i].predict(sample_x,return_std=True)
-            elif isinstance(regression_models[i], LinearRegression):
-                mean_train[i,...] = regression_models[i].predict(sample_x_poly)
-            else:
-                mean_train[i,...] = regression_models[i].predict(sample_x)
+            regression_models[i] = utils.fit_model(sample_x, observation_y[i], 
+                                                   regression_models[i], poly_transformer)
             
+            mean_train[i,...], std_train[i,...] = utils.make_prediction(sample_x, regression_models[i],
+                                                                        poly_transformer)
+            scores_train_individual[i,a+1,...] = utils.calculate_errors(observation_y[i], mean_train[i])
+            max_value_individual[i,a+1,0] = np.max(observation_y[i])
+
             if verbose: 
                 print('Model {}'.format(i))
                 if isinstance(regression_models[i], Pipeline):
@@ -1027,30 +417,36 @@ def run_continuous_batch_learning_multi(models,
                     else:
                         print(regression_models[i])
 
-        if calculate_test_metrics:
-            mean_aggregated = aggregation_function(mean, **kwargs)
-            scores_test[a+1,0] = mean_squared_error(y_true_aggregated, mean_aggregated)
-            scores_test[a+1,1] = mean_absolute_error(y_true_aggregated, mean_aggregated)
-            scores_test[a+1,2] = max_error(y_true_aggregated, mean_aggregated)
-
         mean_train_aggregated = aggregation_function(mean_train, **kwargs)
-        #print('New iteration')
-        #print(sample_x.shape)
-        #print(observation_y_aggregated.shape)
-        #print(mean_train_aggregated.shape)
-        scores_train[a+1,0] = mean_squared_error(observation_y_aggregated, mean_train_aggregated)
-        scores_train[a+1,1] = mean_absolute_error(observation_y_aggregated, mean_train_aggregated)
-        scores_train[a+1,2] = max_error(observation_y_aggregated, mean_train_aggregated)
+        scores_train[a+1,...] = utils.calculate_errors(observation_y_aggregated.flatten(), mean_train_aggregated.flatten())
         max_value[a+1,0] = np.max(observation_y_aggregated)
+
+        if calculate_test_metrics:
+            mean = np.zeros((n_models, len(pool)))
+            std = np.zeros((n_models, len(pool)))
+            for i in range(n_models):
+                mean[i,...], std[i,...] = utils.make_prediction(pool, regression_models[i], poly_transformer)
+                scores_test_individual[i,a+1,...] = utils.calculate_errors(y_true[i], mean[i])
+
+            mean_aggregated = aggregation_function(mean, **kwargs)
+            scores_test[a+1,...] = utils.calculate_errors(y_true_aggregated.flatten(), mean_aggregated.flatten())
     
     logger.info('Finished Active Learning')
 
     #transform results to a pandas DataFrame
-    if calculate_test_metrics:
-        results = np.vstack([n_observations, scores_train.T, scores_test.T, max_value.T])
-        results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation'])
-    else:
-        results = np.vstack([n_observations, scores_train.T, max_value.T])
-        results = pd.DataFrame(results.T, columns=['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation'])
     
-    return sample_x, observation_y, results
+    if calculate_test_metrics:
+        result_dict = {}
+        result_dict['aggregated'] = utils.results_to_df(n_observations, scores_train, 
+                                                        max_value, scores_test)
+        for i in range(n_models):
+            result_dict['model_'+str(i)] = utils.results_to_df(n_observations, scores_train_individual[i], 
+                                                                max_value_individual[i], scores_test_individual[i])
+    else:
+        result_dict = {}
+        result_dict['aggregated'] = utils.results_to_df(n_observations, scores_train, 
+                                                        max_value)
+        for i in range(n_models):
+            result_dict['model_'+str(i)] = utils.results_to_df(n_observations, scores_train_individual[i], 
+                                                                max_value_individual[i])
+    return sample_x, observation_y, result_dict

@@ -20,14 +20,14 @@ def EI(f, uncertainty, opt, max=True, alpha=0.5):
 
     if max==False:
         f_min = np.min(f)
-        cdf = norm.cdf((f_min-f)/uncertainty)
-        pdf = norm.pdf((f_min-f)/uncertainty)
-        ei = alpha*(f_min-f)*cdf + (1-alpha)*uncertainty*pdf
+        cdf = norm.cdf((f_min-f-alpha)/uncertainty)
+        pdf = norm.pdf((f_min-f-alpha)/uncertainty)
+        ei = (f_min-f-alpha)*cdf + uncertainty*pdf
     else:
         f_max = np.max(f)
-        cdf = norm.cdf((f-f_max)/uncertainty)
-        pdf = norm.pdf((f-f_max)/uncertainty)
-        ei = alpha*(f-f_max)*cdf + (1-alpha)*uncertainty*pdf
+        cdf = norm.cdf((f-f_max-alpha)/uncertainty)
+        pdf = norm.pdf((f-f_max-alpha)/uncertainty)
+        ei = (f-f_max-alpha)*cdf + uncertainty*pdf
     return ei
     
 def POI(f, uncertainty, opt, alpha, max=True):

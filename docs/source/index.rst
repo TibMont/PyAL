@@ -6,6 +6,7 @@
    :caption: Introduction
 
    basic_usage
+   acquisition_functions
 
 .. toctree::
    :maxdepth: 5

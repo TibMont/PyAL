@@ -5,8 +5,8 @@
 
 """Animation of active learning for simple 1D functions. Can be used for demonstration purposes."""
 
+import copy
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from matplotlib.ticker import FormatStrFormatter
@@ -15,35 +15,48 @@ try:
 except:
     print('IPython not found.')
 
-from sklearn.preprocessing import PolynomialFeatures
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import Pipeline
-
 from scipy.stats.qmc import LatinHypercube as LHS
 from scipy.stats.qmc import scale
 from scipy.stats import norm
 
-from scipy.optimize import minimize
-from pyswarms.single.global_best import GlobalBestPSO
-
-from PyAL.acfn_discrete import EI, POI, UCB, IDEAL, GSx, GSy, SGSx, iGS
-from PyAL.acfn_continuous import EI_con, POI_con, UCB_con, IDEAL_con, GSx_con, GSy_con, iGS_con, QBC_con, std_con
+from PyAL.acfn_discrete import QBC
+from PyAL.optimize_step import step_discrete, step_continuous
 
 def max_acquisition(acquisition, grid, rng=None):
-    if rng == None:
+    """Find the maximum of a function on a discrete grid
+
+    Parameters
+    ----------
+    acquisition : nd_array
+        Array that containes the values of the acquisition function 
+        on given grid points.
+    grid : nd_array
+        Array that contains the grid points.
+    rng : Numpy Random Number Generator, optional
+        Numpy Random Number Generator object. The default is "None". 
+
+    Returns
+    -------
+    nd_array
+        Grid point for which the acquisition function has its maximum.
+    float
+        Maximum value of the acquisition function.
+    int 
+        Index of the grid point for which the acquisition function has its maximum.
+    """
+    if rng is None:
         rng = np.random.RandomState(seed=None)
-    max_acquisition = np.max(acquisition)
-    max_index = np.where(acquisition==max_acquisition)[0]
+    max_value = np.max(acquisition)
+    max_index = np.where(acquisition==max_value)[0]
     if len(max_index) > 1:
         ind = rng.randint(0,len(max_index),1)
         max_index = max_index[ind]
     max_x = grid[max_index]
-    return max_x, max_acquisition, max_index
+    return max_x, max_value, max_index
 
 def create_animation(
     model,
     gpr,
-    kernel, 
     acquisition_function,
     grid_simple,
     n_iterations = 30,
@@ -52,18 +65,62 @@ def create_animation(
     noise_level = 0,
     html = True,
     random_state = 42,
-    legend = True
+    legend = True,
+    plot_std = True,
+    custom_acfn_input = None
 ):
+    """Create an animation for Active Learning on a 1-dimenional function.
+    The Active Learning is only done on the discrete grid, which must be provided. 
+    This is useful for illustration purposes. 
+
+    Parameters
+    ----------
+    model : Model class
+        PyAL model class that generates the (noisy) data.
+    gpr : Sciit-Learn Model
+        Scikit-Learn Model, use GaussianProcessRegression model here, 
+        since it supports all acquisition functions.
+    acquisition_function : str or callable
+        Name of the acquisition function or a callable. Choose from: ei, poi, 
+        ucb, random, std, ideal, uidal, GSx, GSy, iGS, sGSx. 
+        QBC must implemented separately.
+    grid_simple : nd_array
+        A simple grid in one dimension.
+    n_iterations : int, optional
+        Number of Active Learning steps, by default 30
+    alpha : int, optional
+        Hyperparameter of the given acquisition function, by default 0
+    n_observations : int, optional
+        Number of initial observations, by default 3
+    noise_level : int, optional
+        Standard deviation of Gaussian noise, by default 0
+    html : bool, optional
+        Whether to convert the animation to html format, by default True
+    random_state : int, optional
+        Random state for reproducibility, by default 42
+    legend : bool, optional
+        Whether to show a legend in the animation, by default True.
+    plot_std : bool, optional.
+        Whether to plot the standard deviation, by default True.
+    custom_acfn_input : dict
+        Dictionary that contains which information is used by a custom 
+        acquisition function. The default is None.
+
+    Returns
+    -------
+    matplotlib animation
+        Animation of the Active Learning process.
+    """
     rng = np.random.RandomState(seed=random_state)
-    
+
+    if custom_acfn_input is None:
+        custom_acfn_input = {}
+
     data_indices = rng.randint(0, len(grid_simple),n_observations)
     sample_x = grid_simple[data_indices]
     observation_y = model.evaluate(sample_x, noise=noise_level)
 
     y_true = model.evaluate(grid_simple, noise=0)
-
-    #It is good practice to scale features. A pipeline applies scaling before fitting
-    pipe = Pipeline([('scaler',StandardScaler()), ('gpr',gpr)])
 
     #We save every timestep in the collect variables
     sample_x_collect = []
@@ -75,58 +132,32 @@ def create_animation(
     acquisition_max_collect = []
 
     #Run the Active Learning for n_iterations
-    for i in range(n_iterations):
+    for _ in range(n_iterations):
         #Make model predictions
         gpr.fit(sample_x, observation_y)
         mean, std = gpr.predict(grid_simple,return_std=True)
-        if acquisition_function == 'ei':
-            acquisition = EI(mean, std, opt=np.max(observation_y), max=True, alpha=alpha)
-            x_max, acquisition_max, max_index = max_acquisition(acquisition, grid_simple)
-        elif acquisition_function == 'poi':
-            acquisition = POI(mean, std, opt=np.max(observation_y), max=True, alpha=alpha)
-            x_max, acquisition_max, max_index = max_acquisition(acquisition, grid_simple)
-        elif acquisition_function == 'ucb':
-            acquisition = UCB(mean, std, alpha=alpha)
-            x_max, acquisition_max, max_index = max_acquisition(acquisition, grid_simple)
-        elif acquisition_function == 'random':
-            acquisition = rng.random(size=len(grid_simple))
-            x_max, acquisition_max, max_index = max_acquisition(acquisition, grid_simple)
-        elif acquisition_function =='ideal':
-            acquisition = IDEAL(data_indices, grid_simple, mean, y_true, alpha)
-            x_max, acquisition_max, max_index = max_acquisition(acquisition, grid_simple)
-        elif acquisition_function == 'GSx':
-            acquisition = GSx(data_indices, grid_simple)
-            x_max, acquisition_max, max_index = max_acquisition(acquisition, grid_simple)
-        elif acquisition_function == 'GSy':
-            acquisition = GSy(mean, observation_y)
-            x_max, acquisition_max, max_index = max_acquisition(acquisition, grid_simple)
-        elif acquisition_function == 'iGS':
-            acquisition = iGS(data_indices, grid_simple, mean, observation_y)
-            x_max, acquisition_max, max_index = max_acquisition(acquisition, grid_simple)
-        elif acquisition_function == 'SGSx':
-            acquisition = SGSx(data_indices, grid_simple, std)
-            x_max, acquisition_max, max_index = max_acquisition(acquisition, grid_simple)
 
-        elif acquisition_function == 'qbc':
-            mean_qbc = 0
-            std_qbc = 0
-            #bootstrapping approach to train models
+        n_data = len(grid_simple)
+
+        if acquisition_function == 'qbc':
+            models = []
             for _ in range(alpha):
                 train_index = rng.randint(0,len(sample_x),len(sample_x))
                 gpr.fit(sample_x[train_index], observation_y[train_index])
-                m, s = gpr.predict(grid_simple,return_std=True)
-                mean_qbc += m
-                std_qbc += s
-
-            mean_qbc /= len(sample_x)
-            std_qbc /= len(sample_x)
-            acquisition = np.array(std_qbc)
-
-            x_max, acquisition_max, max_index = max_acquisition(acquisition, grid_simple)
-
+                models.append(copy.deepcopy(gpr))
+            acquisition = QBC(grid_simple, models)
         else:
-            raise Exception('Acquisition function not implemented')
-            
+            acquisition = step_discrete(
+                        acquisition_function,
+                        observation_y,
+                        alpha, mean, std,
+                        n_data, data_indices, grid_simple,
+                        custom_acfn_input,
+                        rng,
+            )
+
+        x_max, acquisition_max, max_index = max_acquisition(acquisition, grid_simple)
+
         data_indices = np.hstack([data_indices, max_index])
 
         observation_new = model.evaluate(x_max.reshape(-1,1), noise=noise_level)
@@ -143,20 +174,36 @@ def create_animation(
         #Update the sample and observations with new data
         sample_x = np.vstack([sample_x, x_max])
         observation_y = np.hstack([observation_y, observation_new])
+
+
     #Create a figure
     fig, (ax1, ax2) = plt.subplots(2,1, gridspec_kw={'height_ratios':[2,1]}, sharex=True)
     fig.set_tight_layout(True)
 
 
-    def plot_anim(sample_x, observation_y, grid, mean, std, acquisition, max_x, max_acquisition, title=None, legend=True):
+    def plot_anim(sample_x, observation_y, grid, mean, std, acquisition_, max_x,
+                  max_value, title=None, legend=True):
         n_data = grid.shape[0]
+
+        #Make sure all acquisition function values are positive for displaying them
+        min_acfn = min(acquisition_)
+        if min_acfn<0:
+            acquisition = acquisition_ - min_acfn
+            max_value_ = (max_value - min_acfn)
+        else:
+            acquisition = acquisition_
+            max_value_ = max_value
+        print('New')
+        print(min_acfn)
+        print(max_value)
+        print(max_value_)
 
         #Clear the plot
         ax1.clear()
         ax2.clear()
 
         #Set title
-        if title != None:
+        if title is not None:
             ax1.set_title(title)
 
         #Plot observations, true model and predicted model
@@ -164,71 +211,138 @@ def create_animation(
         ax1.plot(grid_simple.reshape(n_data),y_true, 'k-', label='True')
         ax1.plot(sample_x, observation_y,'ko', markerfacecolor='white', label='Observation')
         ax1.set_ylabel('$f(x)$')
-        if legend==True:
-            ax1.legend(loc='lower center')
-        ax1.fill_between(grid.reshape(n_data),mean-std*3,mean+std*3, alpha=0.2)
+        if legend:
+            ax1.legend(loc='upper right')
+        if plot_std:
+            ax1.fill_between(grid.reshape(n_data),mean-std*3,mean+std*3, alpha=0.2)
 
         #Plot acquisition function
         ax2.plot(grid.reshape(n_data), acquisition)
-        ax2.plot(max_x, max_acquisition, 'ro')
+        ax2.plot(max_x, max_value_, 'ro')
         ax2.set_ylabel('Acquisition func.')
         ax2.set_xlabel('$x$')
-    
-        #Set ylim for acquisition function
-        max_acquisition = max(acquisition)+np.abs(max(acquisition))*0.1
-        min_acquisition = -max_acquisition
-        ax2.set_ylim(min_acquisition, max_acquisition)
+
+        max_acquisition_ = max(max(acquisition),-1*max_value_)*1.1
+        min_acquisition_ = -max_acquisition_*0.1
+
+        ax2.set_ylim(min_acquisition_,max_acquisition_)
+
         ax1.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
         ax2.yaxis.set_major_formatter(FormatStrFormatter('%.3f'))
 
     #Create the animation function
-    def animation_function(frame, sample_x_collect, observation_y_collect, grid_simple, mean_collect, std_collect, ei_collect, x_max_collect, ei_max_collect, legend=True):
-        plot_anim(sample_x_collect[frame], observation_y_collect[frame], grid_simple, mean_collect[frame], std_collect[frame], 
-        acquisition_collect[frame], x_max_collect[frame], acquisition_max_collect[frame], title='Iteration {}'.format(frame), legend=legend)
-        
+    def animation_function(frame, sample_x_collect, observation_y_collect, grid_simple,
+                           mean_collect, std_collect, acquisition_collect, x_max_collect,
+                           acquisition_max_collect, legend=True):
+        plot_anim(sample_x_collect[frame], observation_y_collect[frame], grid_simple,
+                  mean_collect[frame], std_collect[frame], acquisition_collect[frame],
+                  x_max_collect[frame], acquisition_max_collect[frame],
+                  title='Iteration {}'.format(frame), legend=legend)
+
     #Create the animation
-    anim_created = FuncAnimation(fig, animation_function, frames=n_iterations, interval=1000, fargs=(sample_x_collect, observation_y_collect, grid_simple, mean_collect, 
-                                std_collect, acquisition_collect, x_max_collect, acquisition_max_collect, legend))
+    anim_created = FuncAnimation(fig, animation_function, frames=n_iterations, interval=1000,
+                                 fargs=(sample_x_collect, observation_y_collect, grid_simple,
+                                        mean_collect, std_collect, acquisition_collect,
+                                        x_max_collect, acquisition_max_collect, legend))
     plt.close()
-    if html == True:
+    if html:
         video = anim_created.to_jshtml()
         html = HTML(video)
         return html
     else:
         return anim_created
 
-    
 
 def create_animation_continuous(
     model,
     gpr,
-    kernel, 
     acquisition_function,
     grid_simple,
     n_iterations = 30,
     alpha = 0,
     n_observations = 3,
     noise_level = 0,
-    html = True, 
+    html = True,
     random_state = 42,
     opt_method = 'lbfgs',
-    **kwargs
-):
+    pso_options = None,
+    legend = False,
+    plot_std = False,
+    custom_acfn_input = None,
+
+    ):
+    """Create an animation for Active Learning on a 1-dimenional function. 
+    The Active Learning is done in continuous space using either LBFGS or PSO optimization.
+    A grid must be given do define the boundaries and for plotting.
+    This is useful for illustration purposes. 
+
+    Parameters
+    ----------
+    model : Model class
+        PyAL model class that generates the (noisy) data.
+    gpr : Sciit-Learn Model
+        Scikit-Learn Model, use GaussianProcessRegression model here, 
+        since it supports all acquisition functions.
+    acquisition_function : str or callable
+        Name of the acquisition function or a callable. Choose from: ei, poi, 
+        ucb, random, std, ideal, uidal, GSx, GSy, iGS, sGSx. 
+        QBC must implemented separately.
+    grid_simple : nd_array
+        A simple grid in one dimension.
+    n_iterations : int, optional
+        Number of Active Learning steps, by default 30
+    alpha : int, optional
+        Hyperparameter of the given acquisition function, by default 0
+    n_observations : int, optional
+        Number of initial observations, by default 3
+    noise_level : int, optional
+        Standard deviation of Gaussian noise, by default 0
+    html : bool, optional
+        Whether to convert the animation to html format, by default True
+    random_state : int, optional
+        Random state for reproducibility, by default 42
+    opt_method : str, optional
+        Choose from scipy (using lbfgs algorithm) or PSO (using PySwarms). 
+        The default value is "lbfgs".
+    pso_options : dict, optional
+        Options for PySwarms GlobalBestOptimizer. The default value is "{}".
+    legend : bool, optional
+        Whether to show a legend in the animation, by default True
+    plot_std : bool, optional.
+        Whether to plot the standard deviation, by default True.
+    custom_acfn_input : dict
+        Dictionary that contains which information is used by a custom 
+        acquisition function. The default is {}.
+
+    Returns
+    -------
+    matplotlib animation
+        Animation of the Active Learning process.
+    """
     rng = np.random.RandomState(seed=random_state)
+
+    if custom_acfn_input is None:
+        custom_acfn_input = {}
 
     dimensions = model.n_features
 
     lim = [min(grid_simple), max(grid_simple)]
 
-    sampler = LHS(d=dimensions)
+    sampler = LHS(d=dimensions, seed=random_state)
     sample_x_unscaled = sampler.random(n_observations)
     sample_x = scale(sample_x_unscaled, *lim)
     observation_y = model.evaluate(sample_x, noise=noise_level)
 
-    y_true = model.evaluate(grid_simple, noise=0)
+    #Append random samples to grid
+    n_data = len(grid_simple)
+    grid_simple = np.concatenate([grid_simple, sample_x])
+    grid_simple = np.sort(grid_simple, axis=0)
+    data_indices = []
+    for v in sample_x:
+        data_indices.append(np.where(grid_simple==v)[0][0])
+    data_indices = np.array(data_indices)
 
-    #It is good practice to scale features. A pipeline applies scaling before fitting
-    pipe = Pipeline([('scaler',StandardScaler()), ('gpr',gpr)])
+    y_true = model.evaluate(grid_simple, noise=0)
 
     #We save every timestep in the collect variables
     sample_x_collect = []
@@ -238,70 +352,50 @@ def create_animation_continuous(
     acquisition_collect = []
     x_max_collect = []
     acquisition_max_collect = []
+    grid_collect = []
+    y_true_collect = []
 
     #Run the Active Learning for n_iterations
-    for i in range(n_iterations):
+    for _ in range(n_iterations):
         #Make model predictions
         gpr.fit(sample_x, observation_y)
         mean, std = gpr.predict(grid_simple,return_std=True)
 
-        kargs = kwargs.values()
+        sample_x_poly = None #Needed for LR, which is not allowed here
+        poly_x = None #Needed for LR,  which is not allowed here
+        n_jobs = 1
 
-        if opt_method == 'lbfgs':
-        
-            if acquisition_function =='ideal':
-                acquisition = IDEAL_con(grid_simple, sample_x, gpr, observation_y ,lim, alpha, **kwargs)
-                o = np.where(acquisition == np.nan)
-                x0_unscaled = sampler.random(1)[0]
-                x0 = scale(x0_unscaled.reshape(1,-1), *lim).reshape(dimensions)
-                res = minimize(IDEAL_con, x0=x0, args=(sample_x, gpr, observation_y ,lim, alpha, *kargs), 
-                                bounds=[lim for i in range(dimensions)])
-                new_x = res.x
-                new_y = np.array([res.fun])
-                mean_new, std_new = gpr.predict(new_x.reshape(1,-1), return_std=True)
-                observation_new = model.evaluate(new_x.reshape(1,-1), noise=noise_level)
-                #observation_new = mean+rng.normal(0, std_new, size=1)
-            elif acquisition_function == 'GSx':
-                acquisition = GSx_con(grid_simple, sample_x)
-                x0_unscaled = sampler.random(1)[0]
-                x0 = scale(x0_unscaled.reshape(1,-1), *lim).reshape(dimensions)
-                res = minimize(GSx_con, x0=x0, args=(sample_x),
-                                bounds=[lim for i in range(dimensions)])
-                new_x = res.x
-                new_y = np.array([res.fun])
-                mean_new, std_new = gpr.predict(new_x.reshape(1,-1), return_std=True)
-                observation_new = model.evaluate(new_x.reshape(1,-1), noise=noise_level)
-                #observation_new = mean+rng.normal(0, std_new, size=1)
-            elif acquisition_function == 'GSy':
-                acquisition = GSy_con(grid_simple, observation_y, gpr)
-                x0_unscaled = sampler.random(1)[0]
-                x0 = scale(x0_unscaled.reshape(1,-1), *lim).reshape(dimensions)
-                res = minimize(GSy_con, x0=x0, args=(observation_y, gpr),
-                                bounds=[lim for i in range(dimensions)])
-                new_x = res.x
-                new_y = np.array([res.fun])
-                mean_new, std_new = gpr.predict(new_x.reshape(1,-1), return_std=True)
-                observation_new = model.evaluate(new_x.reshape(1,-1), noise=noise_level)
-            else:
-                raise Exception('Acquisition function not implemented')
+        new_x, new_y = step_continuous(acquisition_function,
+                    opt_method,
+                    gpr,
+                    observation_y,
+                    sample_x,
+                    custom_acfn_input,
+                    alpha,
+                    sampler,
+                    lim,
+                    dimensions,
+                    poly_x,
+                    n_jobs,
+                    pso_options,
+                    rng)
 
-        elif opt_method == 'PSO':
-            pso_options = {'c1': 0.5, 'c2': 0.3, 'w': 0.9}
-            lb = lim[0]
-            ub = lim[1]
-            bounds = [lb,ub]
-            n_particles = 5
-            optimizer = GlobalBestPSO(n_particles=n_particles, dimensions=dimensions, options=pso_options, 
-                                    bounds=bounds)
-
-            if acquisition_function == 'ideal':
-                acquisition = IDEAL_con(grid_simple, sample_x, gpr, observation_y ,lim, alpha, **kwargs)
-                cost, new_x = optimizer.optimize(IDEAL_con, iters=50, verbose=False,
-                                                x_samples=sample_x,
-                                                model=gpr, y_true=observation_y, lim=lim, alpha=alpha, **kwargs)
-                new_y = cost
-            else:
-                raise Exception('Acquisition function not implemented')              
+        if acquisition_function == 'qbc':
+            models = []
+            for _ in range(alpha):
+                train_index = rng.randint(0,len(sample_x),len(sample_x))
+                gpr.fit(sample_x[train_index], observation_y[train_index])
+                models.append(copy.deepcopy(gpr))
+            acquisition = QBC(grid_simple, models)
+        else:
+            acquisition = step_discrete(
+                        acquisition_function,
+                        observation_y,
+                        alpha, mean, std,
+                        n_data, data_indices, grid_simple,
+                        custom_acfn_input,
+                        rng,
+            )
 
         observation_new = model.evaluate(new_x.reshape(-1,1), noise=noise_level)
 
@@ -310,63 +404,97 @@ def create_animation_continuous(
         observation_y_collect.append(observation_y.copy())
         mean_collect.append(mean.copy())
         std_collect.append(std.copy())
-        acquisition_collect.append(-1*acquisition.copy())
+
+        acquisition_collect.append(acquisition.copy())
         x_max_collect.append(new_x.copy())
-        acquisition_max_collect.append(-1*new_y.copy())
+        acquisition_max_collect.append(new_y)
+        grid_collect.append(grid_simple.copy())
+        y_true_collect.append(y_true.copy())
 
         #Update the sample and observations with new data
         sample_x = np.vstack([sample_x, new_x])
         observation_y = np.hstack([observation_y, observation_new])
+
+        #Append new samples to grid
+        n_data = len(grid_simple)
+        grid_simple = np.concatenate([grid_simple, new_x.reshape(-1,1)])
+        grid_simple = np.sort(grid_simple, axis=0)
+        data_indices = []
+        for v in sample_x:
+            data_indices.append(np.where(grid_simple==v)[0][0])
+        data_indices = np.array(data_indices)
+
+        y_true = model.evaluate(grid_simple, noise=0)
+
     #Create a figure
     fig, (ax1, ax2) = plt.subplots(2,1, gridspec_kw={'height_ratios':[2,1]}, sharex=True)
     fig.set_tight_layout(True)
 
-    def plot_anim(sample_x, observation_y, grid, mean, std, acquisition, max_x, max_acquisition, title=None):
-        n_data = grid.shape[0]
+    def plot_anim(sample_x, observation_y, grid, mean, std, acquisition_, max_x,
+                  max_value, y_true, title=None):
+
+        #Make sure all acquisition function values are positive for displaying them
+        min_acfn = min(acquisition_)
+        if min_acfn<0:
+            acquisition = acquisition_ - min_acfn
+            max_value_ =  (max_value + min_acfn)
+        else:
+            acquisition = acquisition_
+            max_value_ = max_value
+
+        n_data_plot = grid.shape[0]
 
         #Clear the plot
         ax1.clear()
         ax2.clear()
 
         #Set title
-        if title != None:
+        if title is not None:
             ax1.set_title(title)
 
+
         #Plot observations, true model and predicted model
-        ax1.plot(grid.reshape(n_data), mean, '-', label='Prediction')
-        ax1.plot(grid_simple.reshape(n_data),y_true, 'k-', label='True')
+        ax1.plot(grid.reshape(n_data_plot), mean, '-', label='Prediction')
+        ax1.plot(grid.reshape(n_data_plot),y_true, 'k-', label='True')
         ax1.plot(sample_x, observation_y,'ko', markerfacecolor='white', label='Observation')
         ax1.set_ylabel('$f(x)$')
-        ax1.legend(loc='upper right', fontsize=10)
-        #ax1.fill_between(grid.reshape(n_data),mean-std*3,mean+std*3, alpha=0.2)
+        if legend:
+            ax1.legend(loc='upper right')
+        if plot_std:
+            ax1.fill_between(grid.reshape(n_data_plot),mean-std*3,mean+std*3, alpha=0.2)
 
         #Plot acquisition function
-        ax2.plot(grid.reshape(n_data), acquisition)
-        ax2.plot(max_x, max_acquisition, 'ro')
+        ax2.plot(grid.reshape(n_data_plot), acquisition)
+        ax2.plot(max_x, -max_value_, 'ro')
         ax2.set_ylabel('Acquisition func.')
         ax2.set_xlabel('$x$')
-    
-        #Set ylim for acquisition function
-        max_acquisition = max(acquisition)+np.abs(max(acquisition))*0.1
-        min_acquisition = -max_acquisition
-        ax2.set_ylim(min_acquisition, max_acquisition)
+
+        max_acquisition_ = max(max(acquisition),-1*max_value_)*1.1
+        min_acquisition_ = -max_acquisition_*0.1
+
+        ax2.set_ylim(min_acquisition_,max_acquisition_)
         ax1.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
         ax2.yaxis.set_major_formatter(FormatStrFormatter('%.3f'))
 
     #Create the animation function
-    def animation_function(frame, sample_x_collect, observation_y_collect, grid_simple, mean_collect, std_collect, ei_collect, x_max_collect, ei_max_collect):
-        plot_anim(sample_x_collect[frame], observation_y_collect[frame], grid_simple, mean_collect[frame], std_collect[frame], 
-        acquisition_collect[frame], x_max_collect[frame], acquisition_max_collect[frame], title='Iteration {}'.format(frame))
-        
+    def animation_function(frame, sample_x_collect, observation_y_collect, grid_collect,
+                           mean_collect, std_collect, acquisition_collect, x_max_collect,
+                           acquisition_max_collect, y_true_collect):
+        plot_anim(sample_x_collect[frame], observation_y_collect[frame], grid_collect[frame],
+                  mean_collect[frame], std_collect[frame], acquisition_collect[frame],
+                  x_max_collect[frame], acquisition_max_collect[frame], y_true_collect[frame],
+                  title='Iteration {}'.format(frame))
+
     #Create the animation
-    anim_created = FuncAnimation(fig, animation_function, frames=n_iterations, interval=1000, fargs=(sample_x_collect, observation_y_collect, grid_simple, mean_collect, 
-                                std_collect, acquisition_collect, x_max_collect, acquisition_max_collect))
+    anim_created = FuncAnimation(fig, animation_function, frames=n_iterations, interval=1000,
+                                 fargs=(sample_x_collect, observation_y_collect, grid_collect,
+                                        mean_collect, std_collect, acquisition_collect,
+                                        x_max_collect, acquisition_max_collect, y_true_collect))
     plt.close()
 
-    if html == True:
+    if html:
         video = anim_created.to_jshtml()
         html = HTML(video)
         return html
     else:
         return anim_created
-    
