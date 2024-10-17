@@ -138,7 +138,7 @@ def run_batch_learning_multi(models,
     '''
     if isinstance(regression_models, list):
         if len(regression_models) != len(models):
-            raise Exception('Inconsistent number of data and regression models: {}, {}'.format(len(models), len(regression_model)))
+            raise Exception('Inconsistent number of data and regression models: {}, {}'.format(len(models), len(regression_models)))
     else:
         regression_models = [copy.deepcopy(regression_models) for i in range(len(models))]
 
