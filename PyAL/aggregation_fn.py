@@ -3,8 +3,9 @@ This module contains a collection of aggregation functions that can be used to c
 them together.
 """
 
+
 def conductivity_aggregation_fn(x, delta_beta):
-    """Calculate the ionic conductivity from S0, S1 and S2 objectives from the generalized Arrhenius fit. 
+    """Calculate the ionic conductivity from S0, S1 and S2 objectives from the generalized Arrhenius fit.
 
     Parameters
     ----------
@@ -20,8 +21,7 @@ def conductivity_aggregation_fn(x, delta_beta):
     """
 
     if len(x.shape) == 1:
-        x = x.reshape(1,-1).T
+        x = x.reshape(1, -1).T
 
-    conductivity = x[0,:] - delta_beta*x[1,:] - x[2,:]*delta_beta**2
+    conductivity = x[0, :] - delta_beta * x[1, :] - x[2, :] * delta_beta**2
     return conductivity
-
