@@ -4,13 +4,11 @@ PyAL - Python based Active Learning with Acquisition Functions
 |made-with-python| |made-with-sphinx-doc| |Documentation Status| |Tests| |GPLv3 license|
 
 
-
-
 PyAL is a framework for using Active Learning in Python. It is specifically designed to use so-called acquisition functions for Active Learning, as discussed e.g. in [1] and [2].
 The goal of this project is to enable sequential and batch-wise learning for pool and population data.
-It can be used for example together with packages like LECA (Liquid Electrolyte Composition Analysis package) to combine Machine Learning based modeling directly with Active Learning.
+It can be used for example together with packages like LECA (Liquid Electrolyte Composition Analysis package) to combine Machine Learning-based modeling directly with Active Learning.
 
-The LECA package can be found [here](https://github.com/Harrison-Teeg/LECA).
+The LECA package can be found here: https://github.com/Harrison-Teeg/LECA.
 
 Requirements
 ============
