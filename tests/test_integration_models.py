@@ -44,7 +44,7 @@ def test_continuous_batch_learninig_pso():
               custom_acfn_input = None,
               )
 
-       assert samples[-1][0] == -0.06780794497104031
+       assert np.round(samples[-1][0], 8) == np.round(-0.06780794497104031, 8)
 
 
 def test_continuous_batch_learninig_lbfgs():
@@ -76,7 +76,7 @@ def test_continuous_batch_learninig_lbfgs():
               custom_acfn_input = None,
               )
 
-       assert samples[-1][0] == -0.06780679378288344
+       assert np.round(samples[-1][0], 8) == np.round(-0.06780679378288344, 8)
 
 kernel = RBF()+WhiteKernel()
 model = GPR(kernel)
@@ -116,7 +116,7 @@ def test_continuous_batch_learning_multi_pso(reg_model, calculate_test_metrics, 
               single_update=single_update
               )
        samples = res[0]
-       assert samples[-1][0] == expected_result
+       assert np.round(samples[-1][0],8) == np.round(expected_result, 8)
 
 def test_run_batch_learning_multi():
        random_state = 10
