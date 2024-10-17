@@ -422,7 +422,7 @@ def run_batch_learning(model,
 
         for j in range(batch_size):
             if j != 0:
-                regression_model = utils.fit_model(estimated_samplex, estimated_observation_y,
+                regression_model = utils.fit_model(estimated_sample_x, estimated_observation_y,
                                                    regression_model, poly_transformer)
                 mean, std = utils.make_prediction(pool, regression_model, poly_transformer)
 
@@ -440,7 +440,7 @@ def run_batch_learning(model,
                 for _ in range(alpha):
                     train_index = rng.randint(0,len(estimated_sample_x),len(estimated_sample_x))
                     if isinstance(reg_model_pure, LinearRegression):
-                        estimated_sample_x_poly = poly_transformer(estimaded_sample_x)
+                        estimated_sample_x_poly = poly_transformer(estimated_sample_x)
                         regression_model.fit(estimated_sample_x_poly[train_index], estimated_observation_y[train_index])
                     else:
                         regression_model.fit(estimated_sample_x[train_index], estimated_observation_y[train_index])
