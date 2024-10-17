@@ -273,7 +273,9 @@ def run_batch_learning_multi(models,
             mask[data_indices] = False
             mask_indices = np.where(mask==True)[0]
             test_set = pool[mask_indices]
-            y_true_test = y_true[mask_indices]
+            #print(mask_indices)
+            #print(y_true)
+            y_true_test = y_true[:, mask_indices]
             y_true_test_aggregated = y_true_aggregated[mask_indices]
             
         mean_test = np.zeros((n_models, len(test_set)))
@@ -432,7 +434,7 @@ def run_batch_learning_multi(models,
                 mask[data_indices] = False
                 mask_indices = np.where(mask==True)[0]
                 test_set = pool[mask_indices]
-                y_true_test = y_true[mask_indices]
+                y_true_test = y_true[:,mask_indices]
                 y_true_test_aggregated = y_true_aggregated[mask_indices]
 
             mean_test = np.zeros((n_models, len(test_set)))

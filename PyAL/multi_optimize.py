@@ -155,6 +155,8 @@ def run_continuous_batch_learning_multi(models,
     #Set random number generator
     if isinstance(random_state, int) or random_state==None:
         rng = np.random.RandomState(seed=random_state)
+    else:
+        rng = random_state
 
     #Set polynomial feature transformer
     poly_transformer = PolynomialFeatures(degree=poly_degree)
@@ -362,7 +364,7 @@ def run_continuous_batch_learning_multi(models,
         if single_update:
             if calculate_test_metrics:
                 result_dict = {}
-                result_dict['aggregated'] = utils.results_to_df(n_observations[0], scores_train[0], 
+                result_dict['aggregated'] = utils.results_to_df(np.array([n_observations[0]]), scores_train[0], 
                                                                 max_value[0], scores_test[0], single_update=True)
                 for i in range(n_models):
                     result_dict['model_'+str(i)] = utils.results_to_df(n_observations[0], scores_train_individual[i,0], 
@@ -370,7 +372,7 @@ def run_continuous_batch_learning_multi(models,
                                                                        single_update=True)
             else:
                 result_dict = {}
-                result_dict['aggregated'] = utils.results_to_df(n_observations[0], scores_train[0], 
+                result_dict['aggregated'] = utils.results_to_df(np.array([n_observations[0]]), scores_train[0], 
                                                                 max_value[0], single_update=True)
                 for i in range(n_models):
                     result_dict['model_'+str(i)] = utils.results_to_df(n_observations[0], scores_train_individual[i,0], 
@@ -424,7 +426,7 @@ def run_continuous_batch_learning_multi(models,
             std = np.zeros((n_models, len(pool)))
             for i in range(n_models):
                 mean[i,...], std[i,...] = utils.make_prediction(pool, regression_models[i], poly_transformer)
-                scores_test_individual[i,a+1,0] = utils.calculate_errors(y_true[i], mean[i])
+                scores_test_individual[i,a+1,...] = utils.calculate_errors(y_true[i], mean[i])
 
             mean_aggregated = aggregation_function(mean, **kwargs)
             scores_test[a+1,...] = utils.calculate_errors(y_true_aggregated.flatten(), mean_aggregated.flatten())

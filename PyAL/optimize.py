@@ -181,7 +181,7 @@ def run_continuous_batch_learning(model,
     
     mean, _ = utils.make_prediction(sample_x, regression_model, 
                                     poly_transformer)
-    scores_train[0,...] = utils.calculate_errors(observation_y, mean_train)
+    scores_train[0,...] = utils.calculate_errors(observation_y, mean)
     max_value[0,0] = np.max(observation_y)
     
     if calculate_test_metrics:
@@ -236,7 +236,7 @@ def run_continuous_batch_learning(model,
         #Calculate scores for training set
         mean, _ = utils.make_prediction(sample_x, regression_model, 
                                         poly_transformer)
-        scores_train[i+1,...] = utils.calculate_errors(observation_y, mean_train)
+        scores_train[i+1,...] = utils.calculate_errors(observation_y, mean)
         max_value[i+1,0] = np.max(observation_y)
 
         #Calculate scores for test set

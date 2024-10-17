@@ -31,13 +31,14 @@ def check_model(regression_model, acquisition_function):
     return reg_model_pure
 
 def generate_pool(dimensions, lim, points=20):
+    print(dimensions)
     x = []
     for i in range(dimensions):
         x.append(np.linspace(*lim, points))
 
     pool = np.meshgrid(*x)
     pool = np.array(pool).T
-    pool = pool.reshape(len(x[0]**dimensions), dimensions)
+    pool = pool.reshape(len(x[0])**dimensions, dimensions)
 
     return pool
 
@@ -101,17 +102,26 @@ def results_to_df(
         single_update=False
 ):
     if scores_test is None:
-        columns = ['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation']
-        results = np.vstack([n_observations, scores_train.T, max_value.T])
         if single_update:
-            results = results.reshape(1,-1)
+            columns = ['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation']
+            results = np.hstack([n_observations, scores_train.T, max_value.T])
+            results = results.reshape(-1,1)
+        else:
+            columns = ['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 'max_observation']
+            results = np.vstack([n_observations, scores_train.T, max_value.T])
+
         results = pd.DataFrame(results.T, columns=columns)
     else:
-        columns = ['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 
-                    'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation']
-        results = np.vstack([n_observations, scores_train.T, scores_test.T, max_value.T])
         if single_update:
-            results = results.reshape(1,-1)
+            columns = ['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 
+                    'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation']
+            results = np.hstack([n_observations, scores_train.T, scores_test.T, max_value.T])
+            results = results.reshape(-1,1)
+        else:
+            columns = ['m', 'mean_MSE_train', 'mean_MAE_train', 'mean_MaxE_train', 
+                        'mean_MSE_test', 'mean_MAE_test', 'mean_MaxE_test', 'max_observation']
+            results = np.vstack([n_observations, scores_train.T, scores_test.T, max_value.T])
+        
         results = pd.DataFrame(results.T, columns=columns)
     
     return results
