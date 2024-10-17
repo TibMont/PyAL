@@ -51,6 +51,6 @@ References
 .. |GPLv3 license| image:: https://img.shields.io/badge/License-GPLv3-blue.svg
    :target: http://perso.crans.org/besson/LICENSE.html
 
-.. |Tests| image:: https://github.com/TibMont/PyAL/actions/workflows/tests.yml/badge.svg
+.. |Tests| image:: https://github.com/TibMont/PyAL/actions/workflows/tests_main.yml/badge.svg
    :alt: Test Status 
-   :target: https://github.com/TibMont/PyAL/actions/workflows/tests.yml
+   :target: https://github.com/TibMont/PyAL/actions/workflows/tests_main.yml
