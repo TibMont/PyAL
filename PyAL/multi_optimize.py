@@ -447,6 +447,10 @@ def run_continuous_batch_learning_multi(
 
             # Store the new estimated observations
             estimated_sample_x = np.vstack([estimated_sample_x, new_x])
+            estimated_sample_x_scaled = np.vstack(
+                [estimated_sample_x_scaled, new_x_scaled]
+            )
+
             estimated_observation_y = np.hstack(
                 [estimated_observation_y, estimated_observation_new]
             )
