@@ -228,11 +228,19 @@ def run_continuous_batch_learning_multi(
         if not isinstance(pool, np.ndarray):
             pool = utils.generate_pool(dimensions, lim_features)
 
+        if feature_scaler != None:
+            scaled_pool = feature_scaler.transform(pool)
+        else:
+            scaled_pool = pool
+
         # Number of data points in pool
         n_data = len(pool)
         y_true = np.zeros((n_models, n_data))
         for i in range(n_models):
             model = models[i]
+            print("Pool")
+            print(scaled_pool)
+            print(pool)
             y_true[i, ...] = model.evaluate(pool, noise=noise[i])
 
         y_true_aggregated = aggregation_function(y_true, **kwargs)
@@ -347,8 +355,11 @@ def run_continuous_batch_learning_multi(
 
         for i in range(n_models):
             mean[i, ...], std[i, ...] = utils.make_prediction(
-                pool, regression_models[i], poly_transformer
+                scaled_pool, regression_models[i], poly_transformer
             )
+            print("Test")
+            print(y_true)
+            print(mean)
             scores_test_individual[i, 0, ...] = utils.calculate_errors(
                 y_true[i], mean[i]
             )
@@ -381,6 +392,10 @@ def run_continuous_batch_learning_multi(
             estimated_sample_x_scaled = estimated_sample_x
 
         estimated_observation_y_aggregated = observation_y_aggregated.copy()
+
+        print("Batch {}".format(a))
+        print(estimated_sample_x)
+        print(estimated_sample_x_scaled)
 
         for j in range(batch_size):
             # For the first sample in a batch we can use the model with which we evaluated the scores
@@ -424,6 +439,8 @@ def run_continuous_batch_learning_multi(
             # We store always the unscaled features
             if feature_scaler != None:
                 new_x = feature_scaler.inverse_transform(new_x_scaled.reshape(1, -1))
+                print("New X")
+                print(new_x)
             else:
                 new_x = new_x_scaled
 
@@ -435,7 +452,10 @@ def run_continuous_batch_learning_multi(
 
             for i in range(n_models):
                 mean_new[i, ...], std_new[i, ...] = utils.make_prediction(
-                    new_x, regression_models[i], poly_transformer, fictive_noise_level
+                    new_x_scaled,
+                    regression_models[i],
+                    poly_transformer,
+                    fictive_noise_level,
                 )
                 estimated_observation_new[i, ...] = mean_new[i,] + rng.normal(
                     0, std_new[i], size=1
@@ -510,6 +530,7 @@ def run_continuous_batch_learning_multi(
 
         observation_new = np.zeros((n_models, len(batch_sample)))
         for i in range(n_models):
+            print(batch_sample)
             observation_new[i, ...] = models[i].evaluate(batch_sample, noise=noise[i])
 
         observation_y = np.hstack([observation_y, observation_new])
@@ -567,7 +588,7 @@ def run_continuous_batch_learning_multi(
             std = np.zeros((n_models, len(pool)))
             for i in range(n_models):
                 mean[i, ...], std[i, ...] = utils.make_prediction(
-                    pool, regression_models[i], poly_transformer
+                    scaled_pool, regression_models[i], poly_transformer
                 )
                 scores_test_individual[i, a + 1, ...] = utils.calculate_errors(
                     y_true[i], mean[i]
