@@ -278,11 +278,17 @@ class PrefitModel:
         The default value is ``None``.
     random_state : int, optional
         Random state for reproducibility. The default value is 1.
+    fixed_features : dict
+        Dictionary with features from the prefit modle that are kept fixed and are not changed.
+        The key is the number of the fixed feature and the value the fixed value.
+        The default value is ``None``.
+    verbose : bool
+        Print debug information. The default value is ``False``.
 
 
     Attributes:
     -----------
-     model : sklearn-model
+    model : sklearn-model
         A prefitted sklearn-model which is used as a model for the true data.
     scaler : sklearn Scaler, optional
         Scaler that is used to preprocess data for the model. A prefitted scaler should be used.
@@ -291,15 +297,29 @@ class PrefitModel:
         Number of features.
     rng : RandomNumberGenerator
         Random Number Generator from numpy.
-
-
+    fixed_features : dict
+        Dictionary with features from the prefit modle that are kept fixed and are not changed.
+        The key is the number of the fixed feature and the value the fixed value.
+        The default value is ``None``.
+    verbose : bool
+        Print debug information. The default value is ``False``.
     """
 
-    def __init__(self, model, n_features, scaler=None, random_state=None):
+    def __init__(
+        self,
+        model,
+        n_features,
+        scaler=None,
+        fixed_features=None,
+        random_state=None,
+        verbose=False,
+    ):
         self.model = model
         self.scaler = scaler
         self.rng = np.random.RandomState(seed=random_state)
         self.n_features = n_features
+        self.fixed_features = fixed_features
+        self.verbose = verbose
 
     def evaluate(self, grid, noise=0):
         """
@@ -316,9 +336,35 @@ class PrefitModel:
         --------
         The function values for each data point.
         """
+
+        if isinstance(self.fixed_features, dict):
+            if self.verbose:
+                print(
+                    "Using fixed values for features {}".format(
+                        list(self.fixed_features.keys())
+                    )
+                )
+                print("The previous shape of the grid is {}".format(grid.shape))
+            total_features = grid.shape[1] + len(self.fixed_features)
+            keys = np.asarray(list(self.fixed_features.keys()), dtype=int)
+            grid_new = np.zeros((grid.shape[0], total_features))
+            k = 0
+            for i in range(total_features):
+                if i in keys:
+                    grid_new[:, i] = self.fixed_features[str(i)]
+                else:
+                    grid_new[:, i] = grid[:, k]
+                    k += 1
+
+            if self.verbose:
+                print("The new shape of the grid is {}".format(grid_new.shape))
+        else:
+            grid_new = grid
+
         if self.scaler != None:
-            grid = self.scaler.transform(grid)
-        y = self.model.predict(grid)
+            grid = self.scaler.transform(grid_new)
+
+        y = self.model.predict(grid_new)
 
         n = self.rng.normal(loc=0, scale=noise, size=len(y))
         y = y + n

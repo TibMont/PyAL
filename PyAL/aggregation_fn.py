@@ -25,3 +25,7 @@ def conductivity_aggregation_fn(x, delta_beta):
 
     conductivity = x[0, :] - delta_beta * x[1, :] - x[2, :] * delta_beta**2
     return conductivity
+
+
+def identity_aggregation_fn(x):
+    return x

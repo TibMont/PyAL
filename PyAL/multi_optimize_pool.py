@@ -9,10 +9,7 @@ import os
 import warnings
 
 import numpy as np
-import pandas as pd
 
-from sklearn.metrics import mean_squared_error, mean_absolute_error, max_error
-from sklearn.gaussian_process import GaussianProcessRegressor as GPR
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 

@@ -78,8 +78,10 @@ def run_continuous_batch_learning(
         data when a batch is completed. The default value is 1.
     noise : float, optional
         Noise in observation. The default is 0.1.
-    initial_samples : int, optional
-        Number of initial samples to generate for the Active Learning. The default is 2.
+    initial_samples : nd_array, int, optional
+        If an integer is provided: Number of initial samples to draw. The default is 2.
+        If an nd_array is provided: Initial data points. The parameter 'initialization'
+        must be 'data'.
     active_learning_steps : int, optional
         Number of active learning steps to perform. The default is 10.
     lim : list, optional
@@ -92,10 +94,11 @@ def run_continuous_batch_learning(
     random_state: int, optional
         Set random state. The default is None.
     initialization : str, optional
-        Initialization method for generating initial data. Choose from 'random' and 'GSx'.
+        Initialization method for generating initial data. Choose from 'random', 'GSx' or 'data'.
         'random' uses Latin Hypercube sampling to generate the initial dat points.
-        'GSx' draws randomly the first data point and then uses the model-free GSx
-        method to sample the other initial data points. The default value is 'random'.
+        'GSx' draws randomly the first data point and then uses the model-free GSx method to
+        sample the other initial data points. If 'data' is chosen, the initial data is assumed
+        to be provided by 'initial_samples'. The default value is 'random'.
     pso_options : dict, optional
         Dictionary with parameters for the Particle Swarm Optimization.
         Only used when opt_method is 'PSO'. For 'None' default values are used.
@@ -145,6 +148,8 @@ def run_continuous_batch_learning(
     # Set random number generator
     if isinstance(random_state, int) or random_state == None:
         rng = np.random.RandomState(seed=random_state)
+    elif isinstance(random_state, np.random.RandomState):
+        rng = random_state
 
     # Generate a pool of sample data points for testing
     dimensions = model.n_features
@@ -164,7 +169,7 @@ def run_continuous_batch_learning(
         sample_x_unscaled = sampler.random(initial_samples)
         sample_x = scale(sample_x_unscaled, *lim)
     elif initialization == "GSx":
-        sample_x, _ = run_continuous_batch_learning(
+        sample_x, _, _ = run_continuous_batch_learning(
             model,
             regression_model,
             acquisition_function="GSx",
@@ -184,6 +189,14 @@ def run_continuous_batch_learning(
             calculate_test_metrics=False,
             custom_acfn_input=custom_acfn_input,
         )
+    elif initialization == "data":
+        if isinstance(initial_samples, np.ndarray):
+            sample_x = initial_samples
+            initial_samples = len(sample_x)
+        else:
+            raise Exception(
+                "initial_samples must be a nd_array for initialization method data"
+            )
     else:
         raise Exception("Initialization method not implemented")
 

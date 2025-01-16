@@ -16,11 +16,11 @@ from scipy.stats.qmc import scale
 from scipy.stats import norm
 
 
-from sklearn.metrics import mean_squared_error, mean_absolute_error, max_error
 from sklearn.gaussian_process import GaussianProcessRegressor as GPR
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import MinMaxScaler
 
 from PyAL.optimize_step import step_continous_multi
 import PyAL.utils as utils
@@ -49,7 +49,8 @@ def run_continuous_batch_learning_multi(
     noise=0.1,
     initial_samples=2,
     active_learning_steps=10,
-    lim=[-1, 1],
+    lim_features=[-1, 1],
+    feature_scaler="min_max",
     alpha=0,
     n_jobs=1,
     random_state=None,
@@ -88,7 +89,7 @@ def run_continuous_batch_learning_multi(
         objective needs to be provided.
     aggregation_function : callable
         Function to aggregate multiple outputs for various objective functions.
-        The function needs to get an np_array as input and also
+        The function needs to get an np_array as input and also:w
         needs a parameter 'uncert' which tells the function if it should
         aggregate uncertainty or not, in case we want to aggregate uncertainty
         different than the mean prediction.
@@ -115,8 +116,12 @@ def run_continuous_batch_learning_multi(
         must be 'data'.
     active_learning_steps : int, optional
         Number of active learning steps to perform. The default is 10.
-    lim : list, optional
+    lim_features : list, optional
         Boundaries for model evaluation. Only used when pool=None. The default is [-1,1].
+    feature_scaler : scikit-learn scaler
+        Scaler for the features. The 'min_max' scaler scales all features between 0 and 1. Furthermore, every pretrained
+        scikit-learn scaler can be used and provided as an object. If None is provided, the features are not scaled.
+        The default is 'min_max'.
     alpha : float
         Hyperparameter for acquisition function. The default is 0.
     n_jobs : int, optional
@@ -125,10 +130,10 @@ def run_continuous_batch_learning_multi(
     random_state: int, optional
         Set random state. The default is None.
     initialization : str, optional
-        Initialization method for generating initial data. Choose from 'random' and 'GSx'.
+        Initialization method for generating initial data. Choose from 'random', 'GSx' or 'data'.
         'random' uses Latin Hypercube sampling to generate the initial dat points.
         'GSx' draws randomly the first data point and then uses the model-free GSx method to
-        sample the other initial data points. If data is chosen, the initial data is assumed
+        sample the other initial data points. If 'data' is chosen, the initial data is assumed
         to be provided by 'initial_samples'. The default value is 'random'.
     pso_options : dict, optional
         Dictionary with parameters for the Particle Swarm Optimization. Only used when o
@@ -198,6 +203,15 @@ def run_continuous_batch_learning_multi(
     dimensions = models[0].n_features
     n_models = len(models)
 
+    # Set scaled feature limits
+    if feature_scaler == None:
+        lim = lim_features
+    elif feature_scaler == "min_max":
+        feature_scaler = MinMaxScaler()
+        lim = feature_scaler.fit_transform(lim_features)
+    else:
+        lim = feature_scaler.transform(lim_features)
+
     # Check if noise is int or float, noise will be applied to every model individually
     if isinstance(noise, int) or isinstance(noise, float):
         noise_old = noise
@@ -212,7 +226,7 @@ def run_continuous_batch_learning_multi(
     if calculate_test_metrics:
         logger.info("Test metrics will be calculated.")
         if not isinstance(pool, np.ndarray):
-            pool = utils.generate_pool(dimensions, lim)
+            pool = utils.generate_pool(dimensions, lim_features)
 
         # Number of data points in pool
         n_data = len(pool)
@@ -232,7 +246,7 @@ def run_continuous_batch_learning_multi(
     if initialization == "random":
         if isinstance(initial_samples, int):
             sample_x_unscaled = sampler.random(initial_samples)
-            sample_x = scale(sample_x_unscaled, *lim)
+            sample_x = scale(sample_x_unscaled, *lim_features)
         else:
             raise Exception(
                 "initial_samples must be an integer for initialization method random"
@@ -250,7 +264,8 @@ def run_continuous_batch_learning_multi(
                 noise=noise,
                 initial_samples=1,
                 active_learning_steps=initial_samples - 1,
-                lim=lim,
+                lim_features=lim_features,
+                feature_scaler=feature_scaler,
                 alpha=alpha,
                 n_jobs=n_jobs,
                 random_state=rng,
@@ -298,13 +313,19 @@ def run_continuous_batch_learning_multi(
 
     mean_train = np.zeros((n_models, len(sample_x)))
     std_train = np.zeros((n_models, len(sample_x)))
+
+    if feature_scaler != None:
+        sample_x_scaled = feature_scaler.transform(sample_x)
+    else:
+        sample_x_scaled = sample_x
+
     for i in range(n_models):
         regression_models[i] = utils.fit_model(
-            sample_x, observation_y[i], regression_models[i], poly_transformer
+            sample_x_scaled, observation_y[i], regression_models[i], poly_transformer
         )
         # Initial model predictions for training set
         mean_train[i, ...], std_train[i, ...] = utils.make_prediction(
-            sample_x, regression_models[i], poly_transformer
+            sample_x_scaled, regression_models[i], poly_transformer
         )
         scores_train_individual[i, 0, ...] = utils.calculate_errors(
             observation_y[i], mean_train[i]
@@ -352,6 +373,13 @@ def run_continuous_batch_learning_multi(
         batch_sample = np.zeros((batch_size, dimensions))
         estimated_observation_y = observation_y.copy()
         estimated_sample_x = sample_x.copy()
+
+        # For fitting models, we use scaled features
+        if feature_scaler != None:
+            estimated_sample_x_scaled = feature_scaler.transform(estimated_sample_x)
+        else:
+            estimated_sample_x_scaled = estimated_sample_x
+
         estimated_observation_y_aggregated = observation_y_aggregated.copy()
 
         for j in range(batch_size):
@@ -360,7 +388,7 @@ def run_continuous_batch_learning_multi(
                 # Fit models
                 for i in range(n_models):
                     regression_models[i] = utils.fit_model(
-                        estimated_sample_x,
+                        estimated_sample_x_scaled,
                         estimated_observation_y[i],
                         regression_models[i],
                         poly_transformer,
@@ -372,14 +400,14 @@ def run_continuous_batch_learning_multi(
                 else:
                     poly_x = None
 
-            new_x, _ = step_continous_multi(
+            new_x_scaled, _ = step_continous_multi(
                 acquisition_function,
                 opt_method,
                 regression_models,
                 aggregation_function,
                 estimated_observation_y,
                 estimated_observation_y_aggregated,
-                estimated_sample_x,
+                estimated_sample_x_scaled,
                 custom_acfn_input,
                 alpha,
                 sampler,
@@ -392,6 +420,12 @@ def run_continuous_batch_learning_multi(
                 n_models,
                 **kwargs
             )
+
+            # We store always the unscaled features
+            if feature_scaler != None:
+                new_x = feature_scaler.inverse_transform(new_x_scaled.reshape(1, -1))
+            else:
+                new_x = new_x_scaled
 
             # Assume estimated predictions
 
@@ -429,6 +463,11 @@ def run_continuous_batch_learning_multi(
 
         # Updated pool with batch data
         sample_x = np.vstack([sample_x, batch_sample])
+
+        if feature_scaler != None:
+            sample_x_scaled = feature_scaler.transform(sample_x)
+        else:
+            sample_x_scaled = sample_x
 
         if single_update:
             if calculate_test_metrics:
@@ -486,11 +525,14 @@ def run_continuous_batch_learning_multi(
 
         for i in range(n_models):
             regression_models[i] = utils.fit_model(
-                sample_x, observation_y[i], regression_models[i], poly_transformer
+                sample_x_scaled,
+                observation_y[i],
+                regression_models[i],
+                poly_transformer,
             )
 
             mean_train[i, ...], std_train[i, ...] = utils.make_prediction(
-                sample_x, regression_models[i], poly_transformer
+                sample_x_scaled, regression_models[i], poly_transformer
             )
             scores_train_individual[i, a + 1, ...] = utils.calculate_errors(
                 observation_y[i], mean_train[i]
