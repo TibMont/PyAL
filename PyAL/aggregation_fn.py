@@ -1,10 +1,14 @@
+import numpy as np
+
 """
 This module contains a collection of aggregation functions that can be used to combine different objectives and optimize 
 them together.
 """
 
 
-def conductivity_aggregation_fn(x, delta_beta):
+def conductivity_aggregation_fn(
+    x, features, delta_beta, uncert=False, scaler=None, use_features=True
+):
     """Calculate the ionic conductivity from S0, S1 and S2 objectives from the generalized Arrhenius fit.
 
     Parameters
@@ -23,8 +27,48 @@ def conductivity_aggregation_fn(x, delta_beta):
     if len(x.shape) == 1:
         x = x.reshape(1, -1).T
 
-    conductivity = x[0, :] - delta_beta * x[1, :] - x[2, :] * delta_beta**2
-    return conductivity
+    if isinstance(features, np.ndarray) and use_features == True:
+        if scaler != None:
+            if len(features.shape) == 1:
+                features = features.reshape(1, -1)
+            features = scaler.inverse_transform(features)
+
+        if uncert == False:
+            conductivity = (
+                x[0, :]
+                + np.log10(features[:, 0])
+                - delta_beta * x[1, :]
+                - x[2, :] * delta_beta**2
+            )
+            # print('V:')
+            # print(conductivity)
+
+            return conductivity
+
+        else:
+            conductivity = x[0, :] + delta_beta * x[1, :] + x[2, :] * delta_beta**2
+            # print('Uncert:')
+            # print(x)
+            # print(conductivity)
+
+            return conductivity
+
+    else:
+
+        if uncert == False:
+            conductivity = x[0, :] - delta_beta * x[1, :] - x[2, :] * delta_beta**2
+            # print('V:')
+            # print(conductivity)
+
+            return conductivity
+
+        else:
+            conductivity = x[0, :] + delta_beta * x[1, :] + x[2, :] * delta_beta**2
+            # print('Uncert:')
+            # print(x)
+            # print(conductivity)
+
+            return conductivity
 
 
 def identity_aggregation_fn(x):

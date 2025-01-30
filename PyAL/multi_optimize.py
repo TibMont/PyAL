@@ -240,7 +240,7 @@ def run_continuous_batch_learning_multi(
             model = models[i]
             y_true[i, ...] = model.evaluate(pool, noise=noise[i])
 
-        y_true_aggregated = aggregation_function(y_true, **kwargs)
+        y_true_aggregated = aggregation_function(y_true, scaled_pool, **kwargs)
 
     else:
         logger.info("Test metrics will not be calculated.")
@@ -298,11 +298,18 @@ def run_continuous_batch_learning_multi(
         raise Exception("Initialization method not implemented")
     logger.info("Initialization finished.")
 
+    if feature_scaler != None:
+        sample_x_scaled = feature_scaler.transform(sample_x)
+    else:
+        sample_x_scaled = sample_x
+
     observation_y = np.zeros((n_models, len(sample_x)))
     for i in range(n_models):
         observation_y[i, ...] = models[i].evaluate(sample_x, noise=noise[i])
 
-    observation_y_aggregated = aggregation_function(observation_y, **kwargs)
+    observation_y_aggregated = aggregation_function(
+        observation_y, sample_x_scaled, **kwargs
+    )
 
     # To save the metrics
     scores_train = np.zeros((active_learning_steps + 1, 3))
@@ -319,11 +326,6 @@ def run_continuous_batch_learning_multi(
     mean_train = np.zeros((n_models, len(sample_x)))
     std_train = np.zeros((n_models, len(sample_x)))
 
-    if feature_scaler != None:
-        sample_x_scaled = feature_scaler.transform(sample_x)
-    else:
-        sample_x_scaled = sample_x
-
     for i in range(n_models):
         regression_models[i] = utils.fit_model(
             sample_x_scaled, observation_y[i], regression_models[i], poly_transformer
@@ -337,7 +339,7 @@ def run_continuous_batch_learning_multi(
         )
         max_value_individual[i, 0, 0] = np.max(observation_y[i])
 
-    mean_train_aggregated = aggregation_function(mean_train, **kwargs)
+    mean_train_aggregated = aggregation_function(mean_train, sample_x_scaled, **kwargs)
     scores_train[0, ...] = utils.calculate_errors(
         observation_y_aggregated.flatten(), mean_train_aggregated.flatten()
     )
@@ -360,7 +362,7 @@ def run_continuous_batch_learning_multi(
             )
 
         # Save scores
-        mean_aggregated = aggregation_function(mean, **kwargs)
+        mean_aggregated = aggregation_function(mean, scaled_pool, **kwargs)
         scores_test[0, ...] = utils.calculate_errors(
             y_true_aggregated.flatten(), mean_aggregated.flatten()
         )
@@ -451,7 +453,7 @@ def run_continuous_batch_learning_multi(
                 )
 
             estimated_observation_new_aggregated = aggregation_function(
-                estimated_observation_new, **kwargs
+                estimated_observation_new, new_x_scaled, **kwargs
             )
 
             # Store the new estimated observations
@@ -523,7 +525,9 @@ def run_continuous_batch_learning_multi(
 
         observation_y = np.hstack([observation_y, observation_new])
 
-        observation_new_aggregated = aggregation_function(observation_new, **kwargs)
+        observation_new_aggregated = aggregation_function(
+            observation_new, feature_scaler.transform(batch_sample), **kwargs
+        )
         observation_y_aggregated = np.hstack(
             [observation_y_aggregated, observation_new_aggregated]
         )
@@ -565,7 +569,9 @@ def run_continuous_batch_learning_multi(
                     else:
                         print(regression_models[i])
 
-        mean_train_aggregated = aggregation_function(mean_train, **kwargs)
+        mean_train_aggregated = aggregation_function(
+            mean_train, sample_x_scaled, **kwargs
+        )
         scores_train[a + 1, ...] = utils.calculate_errors(
             observation_y_aggregated.flatten(), mean_train_aggregated.flatten()
         )
@@ -582,7 +588,7 @@ def run_continuous_batch_learning_multi(
                     y_true[i], mean[i]
                 )
 
-            mean_aggregated = aggregation_function(mean, **kwargs)
+            mean_aggregated = aggregation_function(mean, scaled_pool, **kwargs)
             scores_test[a + 1, ...] = utils.calculate_errors(
                 y_true_aggregated.flatten(), mean_aggregated.flatten()
             )

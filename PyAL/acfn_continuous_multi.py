@@ -61,9 +61,9 @@ def GSy_multi(x, y_sample, model, aggregation_function, poly_x, *args, **kwargs)
             y_individual[i] = model[i].predict(x)
 
     if len(args) != 0:
-        y = aggregation_function(y_individual, *args)
+        y = aggregation_function(y_individual, x, *args)
     else:
-        y = aggregation_function(y_individual, **kwargs)
+        y = aggregation_function(y_individual, x, **kwargs)
 
     n_samples = len(y_sample)
     # print('N samples')
@@ -172,9 +172,9 @@ def IDEAL_multi(
             mean_individual[i, ...] = model[i].predict(x)
 
     if len(args) != 0:
-        mean = aggregation_function(mean_individual, *args)
+        mean = aggregation_function(mean_individual, x, *args)
     else:
-        mean = aggregation_function(mean_individual, **kwargs)
+        mean = aggregation_function(mean_individual, x, **kwargs)
 
     if len(mean.shape) == 1:
         mean = mean.reshape(-1, 1)
@@ -215,13 +215,15 @@ def UCB_multi(x, model, aggregation_function, alpha=0.5, *args, **kwargs):
         )
 
     if len(args) != 0:
-        uncertainty = aggregation_function(uncertainty_individual, uncert=True, *args)
-        mean = aggregation_function(mean_individual, *args)
+        uncertainty = aggregation_function(
+            uncertainty_individual, x, uncert=True, *args
+        )
+        mean = aggregation_function(mean_individual, x, *args)
     else:
         uncertainty = aggregation_function(
-            uncertainty_individual, uncert=True, **kwargs
+            uncertainty_individual, x, uncert=True, **kwargs
         )
-        mean = aggregation_function(mean_individual, **kwargs)
+        mean = aggregation_function(mean_individual, x, **kwargs)
 
     ucb = mean + alpha * uncertainty
     return -ucb
@@ -242,13 +244,15 @@ def POI_multi(x, model, aggregation_function, opt, alpha, max=True, *args, **kwa
         )
 
     if len(args) != 0:
-        uncertainty = aggregation_function(uncertainty_individual, uncert=True, *args)
-        mean = aggregation_function(mean_individual, *args)
+        uncertainty = aggregation_function(
+            uncertainty_individual, x, uncert=True, *args
+        )
+        mean = aggregation_function(mean_individual, x, *args)
     else:
         uncertainty = aggregation_function(
-            uncertainty_individual, uncert=True, **kwargs
+            uncertainty_individual, x, uncert=True, **kwargs
         )
-        mean = aggregation_function(mean_individual, **kwargs)
+        mean = aggregation_function(mean_individual, x, **kwargs)
 
     if max == False:
         f_min = opt
@@ -274,13 +278,15 @@ def EI_multi(x, model, aggregation_function, opt, alpha=0.5, max=True, *args, **
         )
 
     if len(args) != 0:
-        uncertainty = aggregation_function(uncertainty_individual, uncert=True, *args)
-        mean = aggregation_function(mean_individual, *args)
+        uncertainty = aggregation_function(
+            uncertainty_individual, x, uncert=True, *args
+        )
+        mean = aggregation_function(mean_individual, x, *args)
     else:
         uncertainty = aggregation_function(
-            uncertainty_individual, uncert=True, **kwargs
+            uncertainty_individual, x, uncert=True, **kwargs
         )
-        mean = aggregation_function(mean_individual, **kwargs)
+        mean = aggregation_function(mean_individual, x, **kwargs)
 
     if max == False:
         f_min = opt
@@ -318,9 +324,11 @@ def QBC_multi(x, models, aggregation_function, poly_x, *args, **kwargs):
 
     for i in range(mean_qbc_individual.shape[1]):
         if len(args) != 0:
-            mean_qbc[i] = aggregation_function(mean_qbc_individual[:, i, :], *args)
+            mean_qbc[i] = aggregation_function(mean_qbc_individual[:, i, :], x, *args)
         else:
-            mean_qbc[i] = aggregation_function(mean_qbc_individual[:, i, :], **kwargs)
+            mean_qbc[i] = aggregation_function(
+                mean_qbc_individual[:, i, :], x, **kwargs
+            )
 
     result = np.zeros(n_pool)
     for i in range(n_pool):
@@ -366,7 +374,7 @@ def UIDAL_multi(x, x_samples, model, aggregation_function, alpha=1, *args, **kwa
         uncertainty = aggregation_function(individual_uncertainty, uncert=True, *args)
     else:
         uncertainty = aggregation_function(
-            individual_uncertainty, uncert=True, **kwargs
+            individual_uncertainty, x, uncert=True, **kwargs
         )
 
     vk = np.sum(v * uncertainty.reshape(-1, 1), axis=1)
@@ -391,9 +399,9 @@ def SGSx_multi(x, x_sample, model, aggregation_function, alpha=0.5, *args, **kwa
         individual_std[i, ...] = s
 
     if len(args) != 0:
-        std = aggregation_function(individual_std, uncert=True, *args)
+        std = aggregation_function(individual_std, x, uncert=True, *args)
     else:
-        std = aggregation_function(individual_std, uncert=True, **kwargs)
+        std = aggregation_function(individual_std, x, uncert=True, **kwargs)
 
     sgsx = np.power(std, alpha) * np.power(-gsx, (1 - alpha))
     return -sgsx
@@ -413,8 +421,8 @@ def std_multi(x, model, aggregation_function, *args, **kwargs):
         individual_std[i, ...] = s
 
     if len(args) != 0:
-        std = aggregation_function(individual_std, uncert=True, *args)
+        std = aggregation_function(individual_std, x, uncert=True, *args)
     else:
-        std = aggregation_function(individual_std, uncert=True, **kwargs)
+        std = aggregation_function(individual_std, x, uncert=True, **kwargs)
 
     return -std
