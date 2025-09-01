@@ -13,4 +13,4 @@
    :hidden:
    :caption: Package API:
    
-   PyAL
+   PyALAF

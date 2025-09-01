@@ -1,7 +1,7 @@
-Authors of PyAL
-===============
+Authors of PyALAF
+=================
 
-PyAL was created by Mirko Fischer.
+PyALAF was created by Mirko Fischer.
 Below, all contributors of the project are listed.
 
 Contributing authors

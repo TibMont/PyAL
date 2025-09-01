@@ -29,7 +29,7 @@ Installation
 
 This package can be installed directly from the repository using the command:
 
-    pip install git+https://github.com/TibMont/PyAL.git
+    pip install git+https://github.com/TibMont/PyALAF.git
 
 References
 ==========
@@ -51,6 +51,6 @@ References
 .. |GPLv3 license| image:: https://img.shields.io/badge/License-GPLv3-blue.svg
    :target: http://perso.crans.org/besson/LICENSE.html
 
-.. |Tests| image:: https://github.com/TibMont/PyAL/actions/workflows/tests_main.yml/badge.svg
+.. |Tests| image:: https://github.com/TibMont/PyALAF/actions/workflows/tests_main.yml/badge.svg
    :alt: Test Status 
-   :target: https://github.com/TibMont/PyAL/actions/workflows/tests_main.yml
+   :target: https://github.com/TibMont/PyALAF/actions/workflows/tests_main.yml

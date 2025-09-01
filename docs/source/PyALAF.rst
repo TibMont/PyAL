@@ -1,13 +1,13 @@
-########
-PyAL API
-########
+##########
+PyALAF API
+##########
 
-.. currentmodule:: PyAL
+.. currentmodule:: PyALAF
 
 Continuous Acquisition Function
 ===============================
 
-.. automodule:: PyAL.acfn_continuous 
+.. automodule:: PyALAF.acfn_continuous 
    :members:
    :undoc-members:
    :show-inheritance:
@@ -15,7 +15,7 @@ Continuous Acquisition Function
 Discrete Acquisition Function
 =============================
 
-.. automodule:: PyAL.acfn_discrete
+.. automodule:: PyALAF.acfn_discrete
    :members:
    :undoc-members:
    :show-inheritance:
@@ -23,7 +23,7 @@ Discrete Acquisition Function
 Animation
 =========
 
-.. automodule:: PyAL.animation
+.. automodule:: PyALAF.animation
    :members:
    :undoc-members:
    :show-inheritance:
@@ -31,7 +31,7 @@ Animation
 Models
 ======
 
-.. automodule:: PyAL.models
+.. automodule:: PyALAF.models
    :members:
    :undoc-members:
    :show-inheritance:
@@ -39,7 +39,7 @@ Models
 Optimize multi objectives - Population
 ======================================
 
-.. automodule:: PyAL.multi_optimize
+.. automodule:: PyALAF.multi_optimize
    :members:
    :undoc-members:
    :show-inheritance:
@@ -47,7 +47,7 @@ Optimize multi objectives - Population
 Optimize multi objectives - Pool
 ================================
 
-.. automodule:: PyAL.multi_optimize_pool
+.. automodule:: PyALAF.multi_optimize_pool
    :members:
    :undoc-members:
    :show-inheritance:
@@ -55,7 +55,7 @@ Optimize multi objectives - Pool
 Optimize single objective
 =========================
 
-.. automodule:: PyAL.optimize
+.. automodule:: PyALAF.optimize
    :members:
    :undoc-members:
    :show-inheritance:
