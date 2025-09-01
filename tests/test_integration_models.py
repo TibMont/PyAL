@@ -14,7 +14,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
-def identity(x, **kwargs):
+def identity(x, features, uncert=False):
     return x[0, :]
 
 

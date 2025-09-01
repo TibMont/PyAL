@@ -13,6 +13,6 @@ from PyALAF.aggregation_fn import conductivity_aggregation_fn
 )
 def test_conductivity_aggregation_fn(x, expected_result):
     delta_beta = 1000 / 333.15 - 1000 / 293.15
-    result = conductivity_aggregation_fn(x, delta_beta)
+    result = conductivity_aggregation_fn(x, 0, uncert=False, delta_beta=delta_beta)
     result = np.round(result, 8)
     assert np.array_equal(result, expected_result)

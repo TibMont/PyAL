@@ -540,9 +540,14 @@ def run_continuous_batch_learning_multi(
 
         observation_y = np.hstack([observation_y, observation_new])
 
-        observation_new_aggregated = aggregation_function(
-            observation_new, feature_scaler.transform(batch_sample), **kwargs
-        )
+        if feature_scaler != None:
+            observation_new_aggregated = aggregation_function(
+                observation_new, feature_scaler.transform(batch_sample), **kwargs
+            )
+        else:
+            observation_new_aggregated = aggregation_function(
+                observation_new, batch_sample, **kwargs
+            )
         observation_y_aggregated = np.hstack(
             [observation_y_aggregated, observation_new_aggregated]
         )

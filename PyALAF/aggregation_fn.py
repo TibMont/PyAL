@@ -71,5 +71,5 @@ def conductivity_aggregation_fn(
             return conductivity
 
 
-def identity_aggregation_fn(x):
+def identity_aggregation_fn(x, features, uncert=False):
     return x
