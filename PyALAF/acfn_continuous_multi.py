@@ -172,7 +172,7 @@ def IDEAL_multi(
             mean_individual[i, ...] = model[i].predict(x)
 
     if len(args) != 0:
-        mean = aggregation_function(mean_individual, x, *args)
+        mean = aggregation_function(mean_individual, x, uncert=False, *args)
     else:
         mean = aggregation_function(mean_individual, x, **kwargs)
 
@@ -215,10 +215,8 @@ def UCB_multi(x, model, aggregation_function, alpha=0.5, *args, **kwargs):
         )
 
     if len(args) != 0:
-        uncertainty = aggregation_function(
-            uncertainty_individual, x, uncert=True, *args
-        )
-        mean = aggregation_function(mean_individual, x, *args)
+        uncertainty = aggregation_function(uncertainty_individual, x, True, *args)
+        mean = aggregation_function(mean_individual, x, False, *args)
     else:
         uncertainty = aggregation_function(
             uncertainty_individual, x, uncert=True, **kwargs
@@ -227,6 +225,27 @@ def UCB_multi(x, model, aggregation_function, alpha=0.5, *args, **kwargs):
 
     ucb = mean + alpha * uncertainty
     return -ucb
+
+
+def max_multi(x, model, aggregation_function, *args, **kwargs):
+    if len(x.shape) == 1:
+        x = x.reshape(1, -1)
+        n_pool = 1
+    else:
+        n_pool = len(x)
+
+    mean_individual = np.zeros((len(model), n_pool))
+    for i in range(len(model)):
+        mean_individual[i] = model[i].predict(x)
+
+    if len(args) != 0:
+        print(args)
+        mean = aggregation_function(mean_individual, x, True, *args)
+    else:
+        mean = aggregation_function(mean_individual, x, **kwargs)
+
+    max_val = mean
+    return -max_val
 
 
 def POI_multi(x, model, aggregation_function, opt, alpha, max=True, *args, **kwargs):

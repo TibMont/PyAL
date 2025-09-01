@@ -1,10 +1,10 @@
-PyAL - Python based Active Learning with Acquisition Functions
-==============================================================
+PyALAF - The Python Active Learning with Acquisition Functions Package
+======================================================================
 
 |made-with-python| |made-with-sphinx-doc| |Documentation Status| |Tests| |GPLv3 license|
 
 
-PyAL is a framework for using Active Learning in Python. It is specifically designed to use so-called acquisition functions for Active Learning, as discussed e.g. in [1] and [2].
+PyALAF is a framework for using Active Learning in Python. It is specifically designed to use so-called acquisition functions for Active Learning, as discussed e.g. in [1] and [2].
 The goal of this project is to enable sequential and batch-wise learning for pool and population data.
 It can be used for example together with packages like LECA (Liquid Electrolyte Composition Analysis package) to combine Machine Learning-based modeling directly with Active Learning.
 
@@ -29,7 +29,7 @@ Installation
 
 This package can be installed directly from the repository using the command:
 
-    pip install git+https://github.com/TibMont/PyAL.git
+    pip install git+https://github.com/TibMont/PyALAF.git
 
 References
 ==========
@@ -51,6 +51,6 @@ References
 .. |GPLv3 license| image:: https://img.shields.io/badge/License-GPLv3-blue.svg
    :target: http://perso.crans.org/besson/LICENSE.html
 
-.. |Tests| image:: https://github.com/TibMont/PyAL/actions/workflows/tests_main.yml/badge.svg
+.. |Tests| image:: https://github.com/TibMont/PyALAF/actions/workflows/tests_main.yml/badge.svg
    :alt: Test Status 
-   :target: https://github.com/TibMont/PyAL/actions/workflows/tests_main.yml
+   :target: https://github.com/TibMont/PyALAF/actions/workflows/tests_main.yml

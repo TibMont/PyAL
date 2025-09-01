@@ -7,7 +7,7 @@ them together.
 
 
 def conductivity_aggregation_fn(
-    x, features, delta_beta, uncert=False, scaler=None, use_features=True
+    x, features, uncert=False, delta_beta=0, scaler=None, use_features=True
 ):
     """Calculate the ionic conductivity from S0, S1 and S2 objectives from the generalized Arrhenius fit.
 

@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from PyAL.aggregation_fn import conductivity_aggregation_fn
+from PyALAF.aggregation_fn import conductivity_aggregation_fn
 
 
 @pytest.mark.parametrize(

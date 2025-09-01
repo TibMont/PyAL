@@ -20,8 +20,8 @@ from scipy.stats.qmc import LatinHypercube as LHS
 from scipy.stats.qmc import scale
 from scipy.stats import norm
 
-from PyAL.acfn_discrete import QBC
-from PyAL.optimize_step import step_discrete, step_continuous
+from PyALAF.acfn_discrete import QBC
+from PyALAF.optimize_step import step_discrete, step_continuous
 
 
 def max_acquisition(acquisition, grid, rng=None):

@@ -25,6 +25,7 @@ def check_model(regression_model, acquisition_function):
                 "iGS",
                 "ideal",
                 "qbc",
+                "max",
             ]:
                 raise Exception(
                     "Acquisition function {} not implemented for model {}".format(
@@ -39,6 +40,7 @@ def check_model(regression_model, acquisition_function):
                 "iGS",
                 "ideal",
                 "qbc",
+                "max",
             ]:
                 raise Exception(
                     "Acquisition function {} not implemented for model {}".format(
@@ -59,6 +61,7 @@ def check_model(regression_model, acquisition_function):
                 "std",
                 "uidal",
                 "SGSx",
+                "max",
             ]:
                 raise Exception(
                     "Acquisition function {} not implemented for model {}".format(

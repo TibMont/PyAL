@@ -12,11 +12,13 @@ import numpy as np
 
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
+from sklearn.preprocessing import MinMaxScaler
 
-from PyAL.optimize_step import step_discrete
-import PyAL.utils as utils
+from PyALAF.optimize_step import step_discrete
+import PyALAF.utils as utils
 
 import logging
+from sklearn.base import clone
 
 logger = logging.getLogger("basic_logger")
 
@@ -48,7 +50,7 @@ def QBC_multi(x, models, aggregation_function, poly_x, **kwargs):
     mean_qbc = np.zeros((len(models[0]), n_pool))
 
     for i in range(mean_qbc_individual.shape[1]):
-        mean_qbc[i] = aggregation_function(mean_qbc_individual[:, i, :], **kwargs)
+        mean_qbc[i] = aggregation_function(mean_qbc_individual[:, i, :], x, **kwargs)
 
     result = np.zeros(n_pool)
     for i in range(n_pool):
@@ -67,7 +69,8 @@ def run_batch_learning_multi(
     noise=0.1,
     initial_samples=2,
     active_learning_steps=10,
-    lim=[-1, 1],
+    lim_features=[-1, 1],
+    feature_scaler="min_max",
     alpha=0,
     random_state=None,
     return_samples=False,
@@ -110,7 +113,7 @@ def run_batch_learning_multi(
         Number of initial samples to draw from the pool. The default is 2.
     active_learning_steps : int, optional
         Number of active learning steps to perform. The default is 10.
-    lim : list, optional
+    lim_features : list, optional
         Boundaries for model evaluation. Only used when pool=None.
         The default is [-1,1].
     alpha : float
@@ -133,6 +136,10 @@ def run_batch_learning_multi(
         Can be used for testing Active Learning algorithms for known models.
         Test metrics are calculated automatically. If 'False' no test metrics
         are calculated and the AL runs in deployement mode.
+    single_update: bool, optional
+        Whether to stop the Active Learning after the first iteration. The default value is False.
+    custom_acfn_input : dict
+        Dictionary that contains which information is used by a custom acquisition function.
 
     Returns
     -------
@@ -158,6 +165,10 @@ def run_batch_learning_multi(
             copy.deepcopy(regression_models) for i in range(len(models))
         ]
 
+    reg_model_ini = []
+    for regression_model in regression_models:
+        reg_model_ini.append(clone(regression_model))
+
     reg_models_pure = []
     for regression_model in regression_models:
         reg_models_pure.append(
@@ -182,22 +193,54 @@ def run_batch_learning_multi(
         logger.info("Noise converted: ")
         logger.info("from {} to {}".format(noise_old, noise))
 
+    # Set scaled feature limits
+    print(lim_features)
+    if feature_scaler == None:
+        lim = lim_features
+    else:
+        if lim_features != None:
+            if feature_scaler == "min_max":
+                feature_scaler = MinMaxScaler()
+                lim = feature_scaler.fit_transform(lim_features)
+            else:
+                lim = feature_scaler.transform(lim_features)
+        else:
+            raise Exception("lim_features must be given when a scaler is used.")
+
     # Generate a pool of sample data points
     if not isinstance(pool, np.ndarray):
-        pool = utils.generate_pool(dimensions, lim)
+        if lim != None:
+            pool = utils.generate_pool(dimensions, lim)
+        else:
+            raise Exception(
+                "lim_features must be not None when generating a pool of data"
+            )
+
+    if feature_scaler != None:
+        scaled_pool = feature_scaler.transform(pool)
+    else:
+        scaled_pool = pool
 
     # Number of data points in pool
     n_data = len(pool)
 
     if calculate_test_metrics:
         if isinstance(test_set, np.ndarray):
+            if feature_scaler != None:
+                scaled_test_set = feature_scaler.transform(test_set)
+            else:
+                scaled_test_set = test_set
+
             n_data_test = len(test_set)
             y_true_test = np.zeros((n_models, n_data_test))
             for i in range(n_models):
                 model = models[i]
                 y_true_test[i, ...] = model.evaluate(test_set, noise=noise[i])
             extra_test_set = True
-            y_true_test_aggregated = aggregation_function(y_true_test, **kwargs)
+            logger.info("Using separated test set")
+            y_true_test_aggregated = aggregation_function(
+                y_true_test, scaled_test_set, **kwargs
+            )
         else:
             n_data_test = len(pool)
             y_true = np.zeros((n_models, n_data_test))
@@ -205,7 +248,7 @@ def run_batch_learning_multi(
                 model = models[i]
                 y_true[i, ...] = model.evaluate(pool, noise=noise[i])
             extra_test_set = False
-            y_true_aggregated = aggregation_function(y_true, **kwargs)
+            y_true_aggregated = aggregation_function(y_true, scaled_pool, **kwargs)
 
     # Randomly pick data points in pool for initial observations
     if initialization == "random":
@@ -221,7 +264,8 @@ def run_batch_learning_multi(
             noise=noise,
             initial_samples=1,
             active_learning_steps=initial_samples - 1,
-            lim=lim,
+            lim_features=lim_features,
+            feature_scaler=feature_scaler,
             alpha=alpha,
             random_state=rng,
             return_samples=return_samples,
@@ -240,15 +284,22 @@ def run_batch_learning_multi(
             idx.append(index)
 
         rand_num = np.array(idx)
+
+    elif initialization == "data":
+        rand_num = initial_samples
+
     else:
         raise Exception("Initializiation method not implemented")
 
     sample_x = pool[rand_num]
+    sample_x_scaled = scaled_pool[rand_num]
     observation_y = np.zeros((n_models, len(sample_x)))
     for i in range(n_models):
         observation_y[i, ...] = models[i].evaluate(sample_x, noise=noise[i])
 
-    observation_y_aggregated = aggregation_function(observation_y, **kwargs)
+    observation_y_aggregated = aggregation_function(
+        observation_y, sample_x_scaled, **kwargs
+    )
 
     data_indices = rand_num.copy()
 
@@ -256,8 +307,8 @@ def run_batch_learning_multi(
     scores_train = np.zeros((active_learning_steps + 1, 3))
     max_value = np.zeros((active_learning_steps + 1, 1))
     n_observations = np.linspace(
-        initial_samples,
-        initial_samples + (active_learning_steps) * batch_size,
+        len(rand_num),
+        len(rand_num) + (active_learning_steps) * batch_size,
         active_learning_steps + 1,
     )
 
@@ -270,11 +321,11 @@ def run_batch_learning_multi(
 
     for i in range(n_models):
         regression_models[i] = utils.fit_model(
-            sample_x, observation_y[i], regression_models[i], poly_transformer
+            sample_x_scaled, observation_y[i], regression_models[i], poly_transformer
         )
 
         mean[i, ...], std[i, ...] = utils.make_prediction(
-            pool, regression_models[i], poly_transformer
+            scaled_pool, regression_models[i], poly_transformer
         )
 
         # Save scores of individual models
@@ -284,8 +335,8 @@ def run_batch_learning_multi(
         max_value_individual[i, 0, 0] = np.max(observation_y[i])
 
     # Save scores of aggregated model
-    mean_train_aggregated = aggregation_function(mean, **kwargs)
-    std_train_aggregated = aggregation_function(std, uncert=True, **kwargs)
+    mean_train_aggregated = aggregation_function(mean, scaled_pool, **kwargs)
+    std_train_aggregated = aggregation_function(std, scaled_pool, uncert=True, **kwargs)
     scores_train[0, ...] = utils.calculate_errors(
         observation_y_aggregated, mean_train_aggregated[data_indices]
     )
@@ -300,6 +351,7 @@ def run_batch_learning_multi(
             mask[data_indices] = False
             mask_indices = np.where(mask == True)[0]
             test_set = pool[mask_indices]
+            scaled_test_set = scaled_pool[mask_indices]
             # print(mask_indices)
             # print(y_true)
             y_true_test = y_true[:, mask_indices]
@@ -310,13 +362,17 @@ def run_batch_learning_multi(
 
         for i in range(n_models):
             mean_test[i, ...], std_test[i, ...] = utils.make_prediction(
-                test_set, regression_models[i], poly_transformer
+                scaled_test_set, regression_models[i], poly_transformer
             )
+            print("Mean")
+            print(mean_test)
             scores_test_individual[i, 0, ...] = utils.calculate_errors(
                 y_true_test[i], mean_test[i]
             )
 
-        mean_test_aggregated = aggregation_function(mean_test, **kwargs)
+        mean_test_aggregated = aggregation_function(
+            mean_test, scaled_test_set, **kwargs
+        )
         scores_test[0, ...] = utils.calculate_errors(
             y_true_test_aggregated, mean_test_aggregated
         )
@@ -327,6 +383,7 @@ def run_batch_learning_multi(
         batch_indices = np.zeros(batch_size, dtype=np.int32)
         estimated_observation_y = observation_y.copy()
         estimated_sample_x = sample_x.copy()
+        estimated_sample_x_scaled = sample_x_scaled.copy()
         estimated_observation_y_aggregated = observation_y_aggregated.copy()
 
         for j in range(batch_size):
@@ -336,17 +393,21 @@ def run_batch_learning_multi(
                 std = np.zeros((n_models, len(pool)))
                 for i in range(n_models):
                     regression_models[i] = utils.fit_model(
-                        estimated_sample_x,
+                        estimated_sample_x_scaled,
                         estimated_observation_y[i],
                         regression_models[i],
                         poly_transformer,
                     )
                     mean[i, ...], std[i, ...] = utils.make_prediction(
-                        pool, regression_models[i], poly_transformer
+                        scaled_pool, regression_models[i], poly_transformer
                     )
 
-                mean_train_aggregated = aggregation_function(mean, **kwargs)
-                std_train_aggregated = aggregation_function(std, uncert=True, **kwargs)
+                mean_train_aggregated = aggregation_function(
+                    mean, scaled_pool, **kwargs
+                )
+                std_train_aggregated = aggregation_function(
+                    std, scaled_pool, uncert=True, **kwargs
+                )
 
             mask = np.ones(pool.shape[0], dtype=bool)
             mask[data_indices] = False
@@ -366,7 +427,7 @@ def run_batch_learning_multi(
                         if isinstance(reg_models_pure[i], LinearRegression):
                             poly_x = poly_transformer
                             estimated_sample_x_poly = poly_transformer.transform(
-                                estimated_sample_x
+                                estimated_sample_x_scaled
                             )
                             regression_models[i].fit(
                                 estimated_sample_x_poly[train_index],
@@ -375,7 +436,7 @@ def run_batch_learning_multi(
                         else:
                             poly_x = None
                             regression_models[i].fit(
-                                estimated_sample_x[train_index],
+                                estimated_sample_x_scaled[train_index],
                                 estimated_observation_y[i][train_index],
                             )
                         alpha_models.append(copy.deepcopy(regression_model))
@@ -407,7 +468,11 @@ def run_batch_learning_multi(
             data_indices = np.concatenate([data_indices, index])
 
             estimated_x_max = pool[index]
+            estimated_x_max_scaled = scaled_pool[index]
             estimated_sample_x = np.vstack([estimated_sample_x, estimated_x_max])
+            estimated_sample_x_scaled = np.vstack(
+                [estimated_sample_x_scaled, estimated_x_max_scaled]
+            )
 
             # Assume estimated predictions
 
@@ -419,7 +484,7 @@ def run_batch_learning_multi(
 
             for i in range(n_models):
                 mean_new[i, ...], std_new[i, ...] = utils.make_prediction(
-                    pool[index],
+                    scaled_pool[index],
                     regression_models[i],
                     poly_transformer,
                     fictive_noise_level,
@@ -430,7 +495,7 @@ def run_batch_learning_multi(
                 )
 
             estimated_observation_new_aggregated = aggregation_function(
-                estimated_observation_new, **kwargs
+                estimated_observation_new, scaled_pool[index], **kwargs
             )
 
             estimated_observation_y = np.hstack(
@@ -449,7 +514,17 @@ def run_batch_learning_multi(
 
         # Updated pool with batch data
         x_max = pool[batch_indices]
+        x_max_scaled = scaled_pool[batch_indices]
         sample_x = np.vstack([sample_x, x_max])
+
+        # Sorting is necessary, since the order of the samples is relevant for NN with lbfgs
+        idx_sort = np.argsort(sample_x[:, 0], axis=0)  #
+        rng_shuggle = np.random.default_rng(12345)
+        rng_shuggle.shuffle(idx_sort)
+        # print('Idx:', idx_sort)
+        sample_x_sorted = sample_x[idx_sort]  #
+        sample_x_scaled = np.vstack([sample_x_scaled, x_max_scaled])
+        sample_x_scaled_sorted = sample_x_scaled[idx_sort]  #
 
         if single_update:
             if calculate_test_metrics:
@@ -489,21 +564,41 @@ def run_batch_learning_multi(
 
         observation_y = np.hstack([observation_y, observation_new])
 
-        observation_new_aggregated = aggregation_function(observation_new, **kwargs)
+        observation_new_aggregated = aggregation_function(
+            observation_new, x_max_scaled, **kwargs
+        )
         observation_y_aggregated = np.hstack(
             [observation_y_aggregated, observation_new_aggregated]
         )
+
+        observation_y_sorted = np.zeros_like(observation_y)
+        for i in range(n_models):
+            observation_y_sorted[i, ...] = observation_y[i][idx_sort]  #
+        observation_y_aggregated_sorted = observation_y_aggregated[idx_sort]  #
 
         # Fit new model with updated real training set
         mean = np.zeros((n_models, len(pool)))
         std = np.zeros((n_models, len(pool)))
 
+        regression_models = []
+        for regression_model in reg_model_ini:
+            regression_models.append(clone(regression_model))
+
+        # print('Sample')
+        # print(sample_x_scaled)
+
+        # print('Observation')
+        # print(observation_y)
+
         for i in range(n_models):
             regression_models[i] = utils.fit_model(
-                sample_x, observation_y[i], regression_models[i], poly_transformer
+                sample_x_scaled_sorted,
+                observation_y_sorted[i],
+                regression_models[i],
+                poly_transformer,
             )
             mean[i, ...], std[i, ...] = utils.make_prediction(
-                pool, regression_models[i], poly_transformer
+                scaled_pool, regression_models[i], poly_transformer
             )
 
             # Save individual scores
@@ -513,8 +608,10 @@ def run_batch_learning_multi(
             max_value_individual[i, a + 1, 0] = np.max(observation_y[i])
 
         # Save aggregated scores
-        mean_train_aggregated = aggregation_function(mean, **kwargs)
-        std_train_aggregated = aggregation_function(std, uncert=True, **kwargs)
+        mean_train_aggregated = aggregation_function(mean, scaled_pool, **kwargs)
+        std_train_aggregated = aggregation_function(
+            std, scaled_pool, uncert=True, **kwargs
+        )
         scores_train[a + 1, ...] = utils.calculate_errors(
             observation_y_aggregated, mean_train_aggregated[data_indices]
         )
@@ -526,6 +623,7 @@ def run_batch_learning_multi(
                 mask[data_indices] = False
                 mask_indices = np.where(mask == True)[0]
                 test_set = pool[mask_indices]
+                scaled_test_set = scaled_pool[mask_indices]
                 y_true_test = y_true[:, mask_indices]
                 y_true_test_aggregated = y_true_aggregated[mask_indices]
 
@@ -534,13 +632,17 @@ def run_batch_learning_multi(
 
             for i in range(n_models):
                 mean_test[i, ...], std_test[i, ...] = utils.make_prediction(
-                    test_set, regression_models[i], poly_transformer
+                    scaled_test_set, regression_models[i], poly_transformer
                 )
                 scores_test_individual[i, a + 1, ...] = utils.calculate_errors(
                     y_true_test[i], mean_test[i]
                 )
 
-            mean_test_aggregated = aggregation_function(mean_test, **kwargs)
+            # print('Mean')
+            # print(mean_test)
+            mean_test_aggregated = aggregation_function(
+                mean_test, scaled_test_set, **kwargs
+            )
             scores_test[a + 1, ...] = utils.calculate_errors(
                 y_true_test_aggregated, mean_test_aggregated
             )

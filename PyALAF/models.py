@@ -495,7 +495,9 @@ class PoolModel:
             grid = grid.reshape(1, -1)
         idx = []
         for i in range(len(grid)):
-            index = np.where(np.sum(self.features, axis=1) == np.sum(grid[i]))[0][0]
+            index = np.where(
+                np.isclose(np.sum(self.features, axis=1), np.sum(grid[i]), atol=1e-10)
+            )[0][0]
             idx.append(index)
 
         idx = np.array(idx)

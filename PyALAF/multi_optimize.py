@@ -22,8 +22,8 @@ from sklearn.preprocessing import PolynomialFeatures
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import MinMaxScaler
 
-from PyAL.optimize_step import step_continous_multi
-import PyAL.utils as utils
+from PyALAF.optimize_step import step_continous_multi
+import PyALAF.utils as utils
 
 import logging
 
@@ -86,10 +86,14 @@ def run_continuous_batch_learning_multi(
     ----------
     models : List of model class
         Models to generate true data for each objective. One model per
-        objective needs to be provided.
+        objective needs to be provided. The models evaluation function takes as
+        input the unscaled features.
     aggregation_function : callable
         Function to aggregate multiple outputs for various objective functions.
-        The function needs to get an np_array as input and also:w
+        The function needs to get an np_array as input and also requires the scaled
+        features as input. Scaled features are chosen here, because it makes the
+        usage of optimization algorithms easier. If unscaled features should be used,
+        a scaler can be provided. Furthermore, it
         needs a parameter 'uncert' which tells the function if it should
         aggregate uncertainty or not, in case we want to aggregate uncertainty
         different than the mean prediction.
@@ -150,6 +154,10 @@ def run_continuous_batch_learning_multi(
         calculated and the AL runs in deployement mode.
     verbose : bool, optional
         Whether to print additional information. The default value is True.
+    single_update: bool, optional
+        Whether to stop the Active Learning after the first iteration. The default value is False.
+    custom_acfn_input : dict
+        Dictionary that contains which information is used by a custom acquisition function.
     **kwargs : various, optional
         Keyword arguments for the aggregation function.
 
@@ -517,7 +525,14 @@ def run_continuous_batch_learning_multi(
                         max_value_individual[i, 0],
                         single_update=True,
                     )
-            return sample_x, result_dict
+            return (
+                sample_x,
+                {
+                    "agg est. y": estimated_observation_y_aggregated,
+                    "single est. y": estimated_observation_y,
+                },
+                result_dict,
+            )
 
         observation_new = np.zeros((n_models, len(batch_sample)))
         for i in range(n_models):

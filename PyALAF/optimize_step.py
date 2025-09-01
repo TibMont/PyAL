@@ -24,12 +24,19 @@ from sklearn.linear_model import LinearRegression
 
 from pyswarms.single.global_best import GlobalBestPSO
 
-from PyAL.acfn_continuous import EI_con, POI_con, UCB_con, IDEAL_con, GSx_con
-from PyAL.acfn_continuous import GSy_con, iGS_con, QBC_con, SGSx_con, std_con, UIDAL_con
-from PyAL.acfn_continuous_multi import EI_multi, POI_multi, UCB_multi, IDEAL_multi
-from PyAL.acfn_continuous_multi import GSx_multi, GSy_multi, iGS_multi, QBC_multi
-from PyAL.acfn_continuous_multi import SGSx_multi, std_multi, UIDAL_multi
-from PyAL.acfn_discrete import EI, POI, UCB, IDEAL, GSx, GSy, iGS, SGSx, UIDAL
+from PyALAF.acfn_continuous import EI_con, POI_con, UCB_con, IDEAL_con, GSx_con
+from PyALAF.acfn_continuous import (
+    GSy_con,
+    iGS_con,
+    QBC_con,
+    SGSx_con,
+    std_con,
+    UIDAL_con,
+)
+from PyALAF.acfn_continuous_multi import EI_multi, POI_multi, UCB_multi, IDEAL_multi
+from PyALAF.acfn_continuous_multi import GSx_multi, GSy_multi, iGS_multi, QBC_multi
+from PyALAF.acfn_continuous_multi import SGSx_multi, std_multi, UIDAL_multi, max_multi
+from PyALAF.acfn_discrete import EI, POI, UCB, IDEAL, GSx, GSy, iGS, SGSx, UIDAL
 
 if not sys.warnoptions:
     print("Disabled warnings")
@@ -652,6 +659,13 @@ def step_continous_multi(
                 args=(regression_models, aggregation_function, alpha, *optargs),
                 bounds=lim_t,
             )
+        elif acquisition_function == "max":
+            res = minimize(
+                max_multi,
+                x0=x0,
+                args=(regression_models, aggregation_function, *optargs),
+                bounds=lim_t,
+            )
         elif acquisition_function == "ideal":
             res = minimize(
                 IDEAL_multi,
@@ -855,6 +869,16 @@ def step_continous_multi(
                 model=regression_models,
                 aggregation_function=aggregation_function,
                 alpha=alpha,
+                **kwargs
+            )
+        elif acquisition_function == "max":
+            cost, new_x = optimizer.optimize(
+                max_multi,
+                iters=n_iters,
+                verbose=False,
+                n_processes=n_jobs,
+                model=regression_models,
+                aggregation_function=aggregation_function,
                 **kwargs
             )
         elif acquisition_function == "ideal":

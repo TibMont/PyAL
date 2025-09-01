@@ -1,10 +1,10 @@
 import numpy as np
 
 import pytest
-from PyAL.models import inv_sphere
-from PyAL.optimize import run_continuous_batch_learning
-from PyAL.multi_optimize import run_continuous_batch_learning_multi
-from PyAL.multi_optimize_pool import run_batch_learning_multi
+from PyALAF.models import inv_sphere
+from PyALAF.optimize import run_continuous_batch_learning
+from PyALAF.multi_optimize import run_continuous_batch_learning_multi
+from PyALAF.multi_optimize_pool import run_batch_learning_multi
 from sklearn.gaussian_process import GaussianProcessRegressor as GPR
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel
 from sklearn.pipeline import Pipeline

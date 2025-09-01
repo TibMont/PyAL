@@ -17,9 +17,9 @@ from scipy.stats.qmc import scale
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 
-from PyAL.acfn_discrete import QBC
-from PyAL.optimize_step import step_continuous, step_discrete
-import PyAL.utils as utils
+from PyALAF.acfn_discrete import QBC
+from PyALAF.optimize_step import step_continuous, step_discrete
+import PyALAF.utils as utils
 
 if not sys.warnoptions:
     print("Disabled warnings")
