@@ -1,4 +1,4 @@
-PyALAF - The Python Active Learning with Acquisition Functions Package
+PyALAF - The Python Active Learning with Acquisition Functions package
 ======================================================================
 
 |made-with-python| |made-with-sphinx-doc| |Documentation Status| |Tests| |GPLv3 license|
