@@ -129,7 +129,7 @@ def run_batch_learning_multi(
         the model-free GSx method to sample the other initial data points.
         The default value is 'random'.
     test_set : nd_array, optional
-        Array containing explicit data points for testing. If it is 'None'
+        Array containing explicit data points for testindata_model. If it is 'None'
         all unsampled data points in the pool will be used for testing.
         The default value is 'None'.
     calculate_test_metrics : bool, optional
@@ -286,7 +286,8 @@ def run_batch_learning_multi(
             custom_acfn_input=custom_acfn_input,
             fictive_noise_level=fictive_noise_level,
             calculate_test_metrics=False,
-            verbose=verbose**kwargs,
+            verbose=verbose,
+            **kwargs,
         )
 
         idx = []

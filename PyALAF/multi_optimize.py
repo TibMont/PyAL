@@ -247,9 +247,7 @@ def run_continuous_batch_learning_multi(
         for i in range(n_models):
             model = models[i]
             y_true[i, ...] = model.evaluate(pool, noise=noise[i])
-
-        y_true_aggregated = aggregation_function(y_true, scaled_pool, **kwargs)
-
+        y_true_aggregated = aggregation_function(y_true, pool, **kwargs)
     else:
         logger.info("Test metrics will not be calculated.")
 
@@ -315,9 +313,7 @@ def run_continuous_batch_learning_multi(
     for i in range(n_models):
         observation_y[i, ...] = models[i].evaluate(sample_x, noise=noise[i])
 
-    observation_y_aggregated = aggregation_function(
-        observation_y, sample_x_scaled, **kwargs
-    )
+    observation_y_aggregated = aggregation_function(observation_y, sample_x, **kwargs)
 
     # To save the metrics
     scores_train = np.zeros((active_learning_steps + 1, 3))
@@ -347,7 +343,7 @@ def run_continuous_batch_learning_multi(
         )
         max_value_individual[i, 0, 0] = np.max(observation_y[i])
 
-    mean_train_aggregated = aggregation_function(mean_train, sample_x_scaled, **kwargs)
+    mean_train_aggregated = aggregation_function(mean_train, sample_x, **kwargs)
     scores_train[0, ...] = utils.calculate_errors(
         observation_y_aggregated.flatten(), mean_train_aggregated.flatten()
     )
@@ -370,7 +366,7 @@ def run_continuous_batch_learning_multi(
             )
 
         # Save scores
-        mean_aggregated = aggregation_function(mean, scaled_pool, **kwargs)
+        mean_aggregated = aggregation_function(mean, pool, **kwargs)
         scores_test[0, ...] = utils.calculate_errors(
             y_true_aggregated.flatten(), mean_aggregated.flatten()
         )
@@ -461,7 +457,7 @@ def run_continuous_batch_learning_multi(
                 )
 
             estimated_observation_new_aggregated = aggregation_function(
-                estimated_observation_new, new_x_scaled, **kwargs
+                estimated_observation_new, new_x, **kwargs
             )
 
             # Store the new estimated observations
@@ -542,7 +538,7 @@ def run_continuous_batch_learning_multi(
 
         if feature_scaler != None:
             observation_new_aggregated = aggregation_function(
-                observation_new, feature_scaler.transform(batch_sample), **kwargs
+                observation_new, batch_sample, **kwargs
             )
         else:
             observation_new_aggregated = aggregation_function(
@@ -589,9 +585,7 @@ def run_continuous_batch_learning_multi(
                     else:
                         print(regression_models[i])
 
-        mean_train_aggregated = aggregation_function(
-            mean_train, sample_x_scaled, **kwargs
-        )
+        mean_train_aggregated = aggregation_function(mean_train, sample_x, **kwargs)
         scores_train[a + 1, ...] = utils.calculate_errors(
             observation_y_aggregated.flatten(), mean_train_aggregated.flatten()
         )
@@ -608,7 +602,7 @@ def run_continuous_batch_learning_multi(
                     y_true[i], mean[i]
                 )
 
-            mean_aggregated = aggregation_function(mean, scaled_pool, **kwargs)
+            mean_aggregated = aggregation_function(mean, pool, **kwargs)
             scores_test[a + 1, ...] = utils.calculate_errors(
                 y_true_aggregated.flatten(), mean_aggregated.flatten()
             )

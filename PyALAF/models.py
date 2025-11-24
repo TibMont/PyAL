@@ -364,7 +364,7 @@ class PrefitModel:
         if self.scaler != None:
             grid = self.scaler.transform(grid_new)
 
-        y = self.model.predict(grid_new)
+        y = self.model.predict(grid)
 
         n = self.rng.normal(loc=0, scale=noise, size=len(y))
         y = y + n
