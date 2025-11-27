@@ -102,7 +102,6 @@ def run_batch_learning_multi(
         Array containing pool of data. All data is sampled from that pool.
         Data which is not sampled so far is used for calculating
         test metrics when test_set is None.
-        For 'None' a grid with 100 points in each dimension is created.
         The default is 'None'.
     batch_size : int, optional
         Batch size for Active Learning. The model is updated only with
@@ -178,6 +177,8 @@ def run_batch_learning_multi(
     # Set random number generator
     if isinstance(random_state, int) or random_state == None:
         rng = np.random.RandomState(seed=random_state)
+    else:
+        rng = random_state
 
     poly_transformer = PolynomialFeatures(degree=poly_degree)
 
@@ -214,14 +215,6 @@ def run_batch_learning_multi(
     if not isinstance(pool, np.ndarray):
         if lim != None:
             pool = utils.generate_pool(dimensions, lim)
-        else:
-            raise Exception(
-                "lim_features must be not None when generating a pool of data"
-            )
-
-    if feature_scaler != None:
-        scaled_pool = feature_scaler.transform(pool)
-        # print('Pool')
         # print(pool)
         # print('scaled Pool')
         # print(scaled_pool)
@@ -265,7 +258,7 @@ def run_batch_learning_multi(
     elif initialization == "order":
         rand_num = np.arange(0, initial_samples)
     elif initialization == "GSx":
-        initial_data, _ = run_batch_learning_multi(
+        initial_data, _, _ = run_batch_learning_multi(
             models,
             aggregation_function,
             regression_models,
@@ -279,7 +272,7 @@ def run_batch_learning_multi(
             feature_scaler=feature_scaler,
             alpha=alpha,
             random_state=rng,
-            return_samples=return_samples,
+            return_samples=True,
             initialization="random",
             test_set=test_set,
             poly_degree=poly_degree,
