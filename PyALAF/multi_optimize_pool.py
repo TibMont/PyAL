@@ -218,6 +218,9 @@ def run_batch_learning_multi(
         # print(pool)
         # print('scaled Pool')
         # print(scaled_pool)
+
+    if feature_scaler != None:
+        scaled_pool = feature_scaler.transform(pool)
     else:
         scaled_pool = pool
 
