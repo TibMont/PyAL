@@ -5,8 +5,6 @@ from sklearn.gaussian_process import GaussianProcessRegressor as GPR
 from sklearn.linear_model import LinearRegression
 from sklearn.pipeline import Pipeline
 
-from sklearn.base import clone
-
 from sklearn.metrics import mean_squared_error, mean_absolute_error, max_error
 
 
@@ -98,12 +96,6 @@ def fit_model(x, y, regression_model, poly_transformer=None):
     else:
         reg_model_pure = regression_model
 
-    regression_model = clone(regression_model)
-    # print('Training Data')
-    # print(x)
-    # print('Training Model')
-    # print(regression_model)
-
     if isinstance(reg_model_pure, LinearRegression):
         x_poly = poly_transformer.fit_transform(x, axis=0)
         regression_model.fit(x_poly, y)
@@ -124,14 +116,6 @@ def make_prediction(x, regression_model, poly_transformer=None, fictive_noise_le
     # Reshape in case of only 1 sample
     if len(x.shape) == 1:
         x = x.reshape(1, -1)
-
-    # print('Model')
-    # print(regression_model)
-    # if len(x) < 10:
-    #    print('Data')
-    #    print(x)
-    #    print('Model coeffs')
-    #    print(regression_model.coefs_)
 
     # Make the prediction
     # We can set a fictive standard deviation, which is by default zero, for non-GPR models

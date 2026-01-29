@@ -34,15 +34,11 @@ def conductivity_aggregation_fn(
             features = scaler.inverse_transform(features)
 
         if uncert == False:
-            zeros = np.where(features[:, 0] == 0)
             conductivity = (
                 x[0, :]
                 + np.log10(features[:, 0])
                 - delta_beta * x[1, :]
                 - x[2, :] * delta_beta**2
-            )
-            conductivity[zeros] = (
-                x[0, zeros] - delta_beta * x[1, zeros] - x[2, zeros] * delta_beta**2
             )
             # print('V:')
             # print(conductivity)
@@ -76,5 +72,4 @@ def conductivity_aggregation_fn(
 
 
 def identity_aggregation_fn(x, features, uncert=False):
-
-    return x[0, :]
+    return x
