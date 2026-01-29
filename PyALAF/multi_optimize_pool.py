@@ -520,7 +520,7 @@ def run_batch_learning_multi(
                     estimated_observation_new_aggregated,
                 ]
             )
-            batch_indices[j] = index
+            batch_indices[j] = index[0]
 
         # Active learning loop ends here
         ########################################################################################################
