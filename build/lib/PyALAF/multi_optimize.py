@@ -247,7 +247,9 @@ def run_continuous_batch_learning_multi(
         for i in range(n_models):
             model = models[i]
             y_true[i, ...] = model.evaluate(pool, noise=noise[i])
+
         y_true_aggregated = aggregation_function(y_true, scaled_pool, **kwargs)
+
     else:
         logger.info("Test metrics will not be calculated.")
 
