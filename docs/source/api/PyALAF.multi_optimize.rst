@@ -1,4 +1,4 @@
-Optimization multi objectives - Population
+Optimize multi objectives - Population
 ==========================================
 
 .. automodule:: PyALAF.multi_optimize

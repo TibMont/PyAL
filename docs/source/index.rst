@@ -14,6 +14,7 @@
 
    notebooks/basic_usage
    notebooks/acquisition_functions
+   notebooks/animation
 
 .. toctree::
    :maxdepth: 5
