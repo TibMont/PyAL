@@ -33,7 +33,13 @@ from PyALAF.acfn_continuous import (
     std_con,
     UIDAL_con,
 )
-from PyALAF.acfn_continuous_multi import EI_multi, POI_multi, UCB_multi, IDEAL_multi
+from PyALAF.acfn_continuous_multi import (
+    EI_multi,
+    POI_multi,
+    UCB_multi,
+    IDEAL_multi,
+    NIPV_multi,
+)
 from PyALAF.acfn_continuous_multi import GSx_multi, GSy_multi, iGS_multi, QBC_multi
 from PyALAF.acfn_continuous_multi import SGSx_multi, std_multi, UIDAL_multi, max_multi
 from PyALAF.acfn_discrete import EI, POI, UCB, IDEAL, GSx, GSy, iGS, SGSx, UIDAL
@@ -745,6 +751,22 @@ def step_continous_multi(
                 ),
                 bounds=lim_t,
             )
+        elif acquisition_function == "nipv":
+            kwargs_opt = copy.copy(kwargs)
+            n_x_int = kwargs_opt.pop("n_x_int", 500)
+            X_int_unscaled = sampler.random(n_x_int)
+            X_int = scale(X_int_unscaled, *lim)
+            res = minimize(
+                NIPV_multi,
+                x0=x0,
+                args=(
+                    regression_models,
+                    aggregation_function,
+                    X_int,
+                    *optargs,
+                ),
+                bounds=lim_t,
+            )
 
         elif acquisition_function == "qbc":
             s_models = []
@@ -964,6 +986,21 @@ def step_continous_multi(
                 aggregation_function=aggregation_function,
                 alpha=alpha,
                 **kwargs
+            )
+        elif acquisition_function == "nipv":
+            kwargs_opt = copy.copy(kwargs)
+            n_x_int = kwargs_opt.pop("n_x_int", 500)
+            X_int_unscaled = sampler.random(n_x_int)
+            X_int = scale(X_int_unscaled, *lim)
+            cost, new_x = optimizer.optimize(
+                NIPV_multi,
+                iters=n_iters,
+                verbose=False,
+                n_processes=n_jobs,
+                model=regression_models,
+                aggregation_function=aggregation_function,
+                X_int=X_int,
+                **kwargs_opt
             )
         elif acquisition_function == "qbc":
             s_models = []

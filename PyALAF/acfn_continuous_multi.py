@@ -6,6 +6,7 @@
 import numpy as np
 
 from scipy.stats import norm
+from scipy.linalg import solve_triangular
 
 from sklearn.preprocessing import PolynomialFeatures
 
@@ -445,3 +446,79 @@ def std_multi(x, model, aggregation_function, *args, **kwargs):
         std = aggregation_function(individual_std, x, uncert=True, **kwargs)
 
     return -std
+
+
+def NIPV_multi(x, model, aggregation_function, X_int, *args, **kwargs):
+    """
+    Negative Integrated Posterior Variance acquisition function.
+
+    Parameters
+    ----------
+    x : ndarray
+        Candidate point(s) to be evaluated.
+    model : list of fitted sklearn GaussianProcessRegressor
+        Ensemble of GP models (one per output / task).
+    aggregation_function : callable
+        Same signature as used by EI_multi: aggregates the per-model
+        scores into a single value per candidate.
+    X_int : ndarray
+        Integration / reference points over which the posterior variance
+        is integrated (e.g. a Monte-Carlo sample of the input domain).
+    """
+    if len(x.shape) == 1:
+        x = x.reshape(1, -1)
+        n_pool = 1
+    else:
+        n_pool = len(x)
+
+    n_models = len(model)
+    ipv_individual = np.zeros((n_models, n_pool))
+
+    for i in range(n_models):
+        gp = model[i]
+        kernel = gp.kernel_
+
+        # current posterior variance at integration points
+        _, std_int = gp.predict(X_int, return_std=True)
+        var_int = std_int**2  # shape: (n_int,)
+
+        # current posterior variance at candidate points
+        _, std_cand = gp.predict(x, return_std=True)
+        var_cand = std_cand**2  # shape: (n_pool,)
+
+        # posterior covariance k_post(x_cand, X_int)
+        # k_post(a,b) = k(a,b) - k(a, X_train) K^-1 k(X_train, b)
+        K_ci_prior = kernel(x, X_int)  # (n_pool, n_int)
+        K_xt_cand = kernel(x, gp.X_train_)  # (n_pool, n_train)
+        K_xt_int = kernel(X_int, gp.X_train_)  # (n_int, n_train)
+
+        # use the stored Cholesky factor L_ such that K = L_ L_.T
+        v_cand = solve_triangular(gp.L_, K_xt_cand.T, lower=True)  # (n_train, n_pool)
+        v_int = solve_triangular(gp.L_, K_xt_int.T, lower=True)  # (n_train, n_int)
+
+        K_ci_post = K_ci_prior - v_cand.T @ v_int  # (n_pool, n_int)
+
+        # observation noise (sklearn stores it in gp.alpha; may be array)
+        noise = gp.alpha if np.isscalar(gp.alpha) else float(np.mean(gp.alpha))
+
+        # variance reduction at every integration point for every candidate
+        reduction = (K_ci_post**2) / (var_cand[:, None] + noise)  # (n_pool, n_int)
+
+        # look-ahead posterior variance at integration points
+        new_var = var_int[None, :] - reduction  # (n_pool, n_int)
+
+        # numerical safety: posterior variance is non-negative
+        new_var = np.clip(new_var, 0.0, None)
+
+        # integrated (mean) posterior variance per candidate
+        ipv_individual[i] = np.mean(new_var, axis=1)
+
+    # aggregate across the model ensemble (same convention as EI_multi)
+    if len(args) != 0:
+        ipv = aggregation_function(ipv_individual, x, uncert=True, *args)
+    else:
+        ipv = aggregation_function(ipv_individual, x, uncert=True, **kwargs)
+
+    # framework minimizes the returned value => minimizing IPV
+    # is equivalent to maximizing the *negative* IPV.
+    return ipv

@@ -60,6 +60,7 @@ def check_model(regression_model, acquisition_function):
                 "ei",
                 "ucb",
                 "poi",
+                "nipv",
                 "std",
                 "uidal",
                 "SGSx",

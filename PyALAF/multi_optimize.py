@@ -47,6 +47,7 @@ def run_continuous_batch_learning_multi(
     pool=None,
     batch_size=1,
     noise=0.1,
+    noise_test=None,
     initial_samples=2,
     active_learning_steps=10,
     lim_features=[-1, 1],
@@ -229,6 +230,19 @@ def run_continuous_batch_learning_multi(
             print("from {} to {}".format(noise_old, noise))
         logger.info("Noise converted: ")
         logger.info("from {} to {}".format(noise_old, noise))
+    if not isinstance(noise_test, np.ndarray) and not isinstance(noise_test, list):
+        if noise_test == None:
+            noise_test = noise
+        elif isinstance(noise_test, int) or isinstance(noise_test, float):
+            noise_old = noise_test
+            noise_test = [noise_test for _ in range(n_models)]
+            if verbose:
+                print("Test Noise converted: ")
+                print("from {} to {}".format(noise_old, noise_test))
+            logger.info("Test Noise converted: ")
+            logger.info("from {} to {}".format(noise_old, noise_test))
+        else:
+            raise Exception("Test noise format unknown.")
 
     # Generate a pool of sample data points for testing
     if calculate_test_metrics:
@@ -246,7 +260,7 @@ def run_continuous_batch_learning_multi(
         y_true = np.zeros((n_models, n_data))
         for i in range(n_models):
             model = models[i]
-            y_true[i, ...] = model.evaluate(pool, noise=noise[i])
+            y_true[i, ...] = model.evaluate(pool, noise=noise_test[i])
         y_true_aggregated = aggregation_function(y_true, scaled_pool, **kwargs)
     else:
         logger.info("Test metrics will not be calculated.")
@@ -273,6 +287,7 @@ def run_continuous_batch_learning_multi(
                 pool=pool,
                 batch_size=1,
                 noise=noise,
+                noise_test=noise_test,
                 initial_samples=1,
                 active_learning_steps=initial_samples - 1,
                 lim_features=lim_features,
