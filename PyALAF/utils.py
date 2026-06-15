@@ -12,12 +12,12 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, max_error
 
 def check_model(regression_model, acquisition_function):
 
-    if not callable(acquisition_function):
+    if isinstance(regression_model, Pipeline):
+        reg_model_pure = regression_model["model"]
+    else:
+        reg_model_pure = regression_model
 
-        if isinstance(regression_model, Pipeline):
-            reg_model_pure = regression_model["model"]
-        else:
-            reg_model_pure = regression_model
+    if not callable(acquisition_function):
 
         if isinstance(reg_model_pure, LinearRegression):
             if acquisition_function not in [
@@ -60,6 +60,7 @@ def check_model(regression_model, acquisition_function):
                 "ei",
                 "ucb",
                 "poi",
+                "nipv",
                 "std",
                 "uidal",
                 "SGSx",
