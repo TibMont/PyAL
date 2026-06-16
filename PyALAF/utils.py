@@ -106,7 +106,7 @@ def fit_model(x, y, regression_model, poly_transformer=None):
     # print(regression_model)
 
     if isinstance(reg_model_pure, LinearRegression):
-        x_poly = poly_transformer.fit_transform(x, axis=0)
+        x_poly = poly_transformer.fit_transform(x)
         regression_model.fit(x_poly, y)
     else:
         regression_model.fit(x, y)
@@ -141,7 +141,7 @@ def make_prediction(x, regression_model, poly_transformer=None, fictive_noise_le
 
     elif isinstance(reg_model_pure, LinearRegression):
 
-        x_poly = poly_transformer.fit_transform(x, axis=0)
+        x_poly = poly_transformer.fit_transform(x)
         mean_new = regression_model.predict(x_poly)
         std_new = fictive_noise_level
 
