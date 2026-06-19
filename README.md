@@ -34,6 +34,27 @@ This package can be installed directly from the repository using the command:
 
     pip install git+https://github.com/TibMont/PyALAF.git
 
+Citation
+========
+
+If you find this code helpful, please consider citing either the paper in which PyALAF was introduced or citing the code directly.
+
+```bibtex
+@misc{Fischer2026Electrolyte,
+  title = {Unlocking a Shortcut: {{Active}} Machine Learning in Non-Aqueous Battery Electrolyte Development for Sodium-Based Batteries},
+  author = {Fischer, Mirko and Tobias Hinz, Robert and W{\"o}lke, Christian and {Cekic-Laskovic}, Isidora and Winter, Martin and Heuer, Andreas},
+  year = 2026,
+  doi = {10.26434/chemrxiv.15001244/v1},
+  }
+
+@misc{Fischer2026PyALAF,
+  title = {{{PyALAF}}: V0.1.1},
+  author = {Fischer, Mirko},
+  year = 2026,
+  doi = {10.5281/zenodo.20747294},
+}
+```
+
 References
 ==========
 
