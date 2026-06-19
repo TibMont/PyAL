@@ -6,4 +6,5 @@ nbsphinx
 sphinx-gallery
 sphinx_rtd_theme
 typing_extensions
-git+https://github.com/TibMont/PyAL.git
+myst_parser
+git+https://github.com/TibMont/PyALAF.git

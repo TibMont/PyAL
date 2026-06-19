@@ -7,7 +7,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.abspath(".."))
-sys.path.insert(0, os.path.abspath(os.path.join("..", "PyAL")))
+sys.path.insert(0, os.path.abspath(os.path.join("..", "PyALAF")))
 sys.path.insert(0, os.path.abspath("../.."))
 
 # -- Project information -----------------------------------------------------
@@ -30,6 +30,7 @@ extensions = [
     "sphinx.ext.mathjax",
     "nbsphinx",
     "numpydoc",
+    "myst_parser",
 ]
 
 numpydoc_show_class_members = False
@@ -39,7 +40,8 @@ templates_path = ["_templates"]
 exclude_patterns = []
 
 autosummary_generate = True
-source_suffix = ".rst"
+source_suffix = {".rst": "restructuredtext",
+                 ".md": "markdown"}
 
 master_doc = "index"
 
@@ -52,3 +54,7 @@ pygments_style = "sphinx"
 
 html_theme = "sphinx_rtd_theme"
 # html_static_path = ['_static']
+html_theme_options = {
+    "collapse_navigation": False,
+    "navigation_depth": 5,
+}

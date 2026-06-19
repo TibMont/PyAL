@@ -1,10 +1,11 @@
-.. include:: ../../README.rst
+.. include:: ../../README.md
+   :parser: myst_parser.sphinx_
 
 .. toctree::
    :maxdepth: 3
    :hidden:
    :caption: Introduction
-   
+
    files/description
 
 .. toctree::
@@ -20,7 +21,7 @@
    :maxdepth: 5
    :hidden:
    :caption: Package API:
-   
+
    api/PyALAF.animation
    api/PyALAF.acfn_continuous
    api/PyALAF.acfn_continuous_multi
@@ -32,4 +33,3 @@
    api/PyALAF.optimize
    api/PyALAF.optimize_step
    api/PyALAF.utils
-  
